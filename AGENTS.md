@@ -87,6 +87,17 @@ dependências. Leia este arquivo antes de agir.
 4. Fluxo: `valheim-mod-lead` decompõe → delega aos especialistas → integra → `valheim-mod-reviewer`
    audita → `thunderstore-packager` empacota quando aplicável.
 
+## Documentação e versionamento (obrigatório)
+
+- **Toda alteração relevante** deve atualizar a documentação correspondente:
+  - `README.md` — visão geral, controles, estrutura (quando algo visível ao usuário mudar).
+  - `CHANGELOG.md` — uma entrada por versão (Adicionado / Alterado / Corrigido).
+  - `docs/roadmap.md` — marcar/atualizar o status das fases.
+  - `AGENTS.md` — quando um fato (versão, caminho, convenção) mudar.
+- **Sempre commitar e dar push** ao terminar uma alteração (`git add -A && git commit && git push`),
+  com mensagem no padrão `tipo(escopo): resumo` (ex.: `feat(fase2.4b): ...`).
+- Ao subir a versão do plugin (`Plugin.PluginVersion`), reflita a mesma versão no `CHANGELOG.md`.
+
 ## Definição de pronto
 
 - Compila em net472 sem erros (e sem warnings críticos).

@@ -264,7 +264,7 @@ namespace ModAIValheim.Companion
             public override string Help =>
                 "Mostra ou define o modo de combate do companheiro. " +
                 "Uso: modia_mode [passive|defensive|aggressive]. " +
-                "Sem argumento mostra o modo atual (também trocável pela tecla de combate, F2).";
+                "Sem argumento mostra o modo atual (também trocável pela tecla de combate, F3).";
 
             public override void Run(string[] args, Terminal context)
             {

@@ -40,7 +40,7 @@ namespace ModAIValheim.Companion
 
         internal static CompanionMode Mode => _mode != null ? _mode.Value : CompanionMode.Defensive;
 
-        internal static KeyCode ModeKey => _modeKey != null ? _modeKey.Value : KeyCode.F2;
+        internal static KeyCode ModeKey => _modeKey != null ? _modeKey.Value : KeyCode.F3;
 
         /// <summary>Raio (m) da varredura do modo Aggressive, medido a partir do companheiro.</summary>
         internal static float AggressiveRadius => _aggressiveRadius != null ? _aggressiveRadius.Value : 30f;

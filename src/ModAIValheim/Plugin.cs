@@ -22,7 +22,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.4";
+        public const string PluginVersion = "0.2.5";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -143,7 +143,7 @@ namespace ModAIValheim
             _combatModeKey = Config.Bind(
                 "Teclas",
                 "CombatModeKey",
-                KeyCode.F2,
+                KeyCode.F3,
                 "Tecla que cicla o modo de combate: Passive -> Defensive -> Aggressive.");
 
             _aggressiveRadius = Config.Bind(
