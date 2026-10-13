@@ -578,9 +578,10 @@ namespace ModAIValheim.Companion
 
         /// <summary>
         /// Diagnóstico único por sessão do que o <see cref="VisEquipment"/> do prefab consegue
-        /// renderizar. Peças de peito/pernas dependem de <c>m_bodyModel</c> (o corpo do jogador);
-        /// elmo/capa/armas se penduram nos ossos do esqueleto. Se o corpo base não tiver
-        /// <c>m_bodyModel</c>, a armadura de peito/pernas é equipada na lógica mas não aparece.
+        /// renderizar. Peito/pernas são pintados no <c>m_bodyModel</c> (o corpo do viking do
+        /// prefab 'Player', ver <see cref="CompanionPrefab"/>); elmo/capa/armas se penduram nos
+        /// ossos do esqueleto. Se o corpo base não tiver <c>m_bodyModel</c>, a armadura de
+        /// peito/pernas é equipada na lógica mas não aparece.
         /// </summary>
         private static void InspectVisualsOnce(VisEquipment visEq)
         {
@@ -610,7 +611,7 @@ namespace ModAIValheim.Companion
                     $"mão esquerda = {(visEq.m_leftHand != null ? "ok" : "ausente")}, " +
                     $"mão direita = {(visEq.m_rightHand != null ? "ok" : "ausente")}.",
                     "[ModIA] Peito/pernas só aparecem se o corpo base tiver 'body model' " +
-                    "(o clone de criatura não tem esse corpo do jogador); elmo/capa/armas penduram nos ossos."
+                    "(o corpo do viking do prefab 'Player' tem); elmo/capa/armas penduram nos ossos."
                 };
             }
 

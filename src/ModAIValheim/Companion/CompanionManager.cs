@@ -100,6 +100,7 @@ namespace ModAIValheim.Companion
             {
                 _companion = existing.gameObject;
                 existing.SetFollowTarget(player.gameObject);
+                CompanionAppearance.Apply(existing);
                 Plugin.Log.LogInfo("[ModIA] Companheiro existente adotado e voltou a seguir o jogador.");
                 return;
             }
@@ -154,7 +155,9 @@ namespace ModAIValheim.Companion
             ai.EnsureConfigured();
             ai.SetFollowTarget(player.gameObject);
 
-            // Loadout padrão (arma + armaduras) da config; tolerante a prefab inexistente.
+            // Aparência padrão (cabelo/barba/cores) e loadout da config; ambos tolerantes a
+            // prefab/config inexistente.
+            CompanionAppearance.Apply(ai);
             CompanionInventory.ApplyDefaultLoadout(ai);
 
             Character character = companion.GetComponent<Character>();
