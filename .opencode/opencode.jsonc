@@ -1,0 +1,13 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "bepinex": {
+      "repository": "BepInEx/BepInEx",
+      "description": "Fonte oficial do BepInEx (plugin, config, logging, Harmony). Use para confirmar APIs de plugin/config/patches."
+    },
+    "jotunn": {
+      "repository": "Valheim-Modding/Jotunn",
+      "description": "Fonte oficial do Jotunn (Managers, prefabs, itens, GUI, localização). Use para confirmar APIs do framework."
+    }
+  }
+}

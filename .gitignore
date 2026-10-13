@@ -1,0 +1,41 @@
+# === Build (.NET / MSBuild) ===
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+.vs/
+*.binlog
+
+# === Unity (se houver projeto de assets) ===
+[Ll]ibrary/
+[Tt]emp/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+UserSettings/
+*.csproj.user
+
+# === NuGet ===
+packages/
+*.nupkg
+*.snupkg
+
+# === Config local (caminhos da máquina) ===
+Environment.props
+DoPrebuild.props
+
+# === Empacotamento local ===
+*.zip
+dist/
+
+# === Referência do Thrall (ego.ai, "All rights reserved") ===
+# Não versionar: material de terceiros, usado apenas como referência de estudo.
+ego_ai-Thrall-1.0.11/
+*.blob
+
+# === SO / editor ===
+Thumbs.db
+desktop.ini
+.idea/
