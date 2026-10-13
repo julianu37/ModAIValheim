@@ -1,0 +1,71 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ModAIValheim</AssemblyName>
+    <RootNamespace>ModAIValheim</RootNamespace>
+    <Version>0.1.0</Version>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DebugType>portable</DebugType>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+
+  <!-- Caminhos locais (VALHEIM_INSTALL / BEPINEX_PATH / MOD_DEPLOYPATH). Gitignored. -->
+  <Import Project="$(MSBuildThisFileDirectory)..\..\Environment.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)..\..\Environment.props')" />
+
+  <PropertyGroup>
+    <VALHEIM_INSTALL Condition="'$(VALHEIM_INSTALL)' == ''">C:\Program Files (x86)\Steam\steamapps\common\Valheim</VALHEIM_INSTALL>
+    <BEPINEX_PATH Condition="'$(BEPINEX_PATH)' == ''">$(VALHEIM_INSTALL)\BepInEx</BEPINEX_PATH>
+    <MOD_DEPLOYPATH Condition="'$(MOD_DEPLOYPATH)' == ''">$(BEPINEX_PATH)\plugins</MOD_DEPLOYPATH>
+    <MANAGED_PATH>$(VALHEIM_INSTALL)\valheim_Data\Managed</MANAGED_PATH>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Permite compilar net472 sem o Developer Pack instalado. -->
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BepInEx / Harmony -->
+    <Reference Include="BepInEx">
+      <HintPath>$(BEPINEX_PATH)\core\BepInEx.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(BEPINEX_PATH)\core\0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Jotunn (framework) -->
+    <Reference Include="Jotunn">
+      <HintPath>$(BEPINEX_PATH)\plugins\Jotunn.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Jogo -->
+    <Reference Include="assembly_valheim">
+      <HintPath>$(MANAGED_PATH)\assembly_valheim.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
+    <!-- Unity -->
+    <Reference Include="UnityEngine">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.CoreModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- Pos-build: copia a DLL do mod para BepInEx\plugins -->
+  <Target Name="DeployToPlugins" AfterTargets="Build" Condition="Exists('$(MOD_DEPLOYPATH)')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(MOD_DEPLOYPATH)" />
+    <Message Importance="high" Text="ModIA: $(TargetFileName) copiado para $(MOD_DEPLOYPATH)" />
+  </Target>
+
+</Project>

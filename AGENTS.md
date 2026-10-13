@@ -26,11 +26,16 @@ dependências. Leia este arquivo antes de agir.
 
 ## Configuração de build
 
-- Criar `Environment.props` na raiz da solução com `VALHEIM_INSTALL` apontando para a pasta do
-  jogo. O Jotunn usa esse arquivo para referenciar/publicizar as assemblies automaticamente.
-- Referência a net472: usar o pacote NuGet `Microsoft.NETFramework.ReferenceAssemblies` para não
-  exigir o Developer Pack completo.
-- O build deve copiar o `.dll` para `BepInEx\plugins`.
+- Solução: `ModAIValheim.slnx` (formato novo, suportado pelo VS 2026) → projeto
+  `src/ModAIValheim/ModAIValheim.csproj` (**net472**, C#).
+- `Environment.props` na raiz define `VALHEIM_INSTALL` / `BEPINEX_PATH` / `MOD_DEPLOYPATH`. É
+  **gitignored**; o `.csproj` tem defaults para o caminho padrão da Steam.
+- net472 sem Developer Pack: pacote NuGet `Microsoft.NETFramework.ReferenceAssemblies`.
+- Referências (`assembly_valheim`, `UnityEngine*`, `BepInEx`, `0Harmony`, `Jotunn`) via `HintPath`
+  com `Private=false` (não copiar para a saída).
+- **Build:** `dotnet build src/ModAIValheim/ModAIValheim.csproj -c Debug`. O alvo de pós-build
+  copia a DLL para `BepInEx\plugins` automaticamente.
+- **Teste:** iniciar o jogo e conferir `BepInEx\LogOutput.log` (deve listar `ModIA Companion`).
 
 ## Convenções de código
 
