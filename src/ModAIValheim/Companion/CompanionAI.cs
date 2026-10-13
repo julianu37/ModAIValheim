@@ -72,6 +72,9 @@ namespace ModAIValheim.Companion
         /// <summary>Buffer reaproveitado pelas varreduras de alvo (nenhuma lista alocada em jogo).</summary>
         private readonly List<Character> _scanBuffer = new List<Character>();
 
+        /// <summary>Buffer reaproveitado das ferramentas de golpe do companheiro (coleta).</summary>
+        private readonly List<HarvestToolProfile> _harvestTools = new List<HarvestToolProfile>();
+
         // --- Fase 2.4b: coleta de recursos -----------------------------------
         /// <summary>True enquanto a coleta esteve ativa no frame anterior (para saber quando restaurar o follow).</summary>
         private bool _harvestWasActive;
@@ -759,25 +762,25 @@ namespace ModAIValheim.Companion
         /// </summary>
         private GameObject AcquireHarvestNode()
         {
-            int toolTier = CompanionInventory.GetBestAvailableToolTier(this);
-            GameObject node = CompanionHarvestScanner.FindBestNode(
+            CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
+            HarvestPick pick = CompanionHarvestScanner.FindBestNode(
                 transform.position,
                 CompanionHarvest.ResourceName,
                 CompanionHarvest.ScanRadius,
                 CompanionHarvest.CollectDrops,
-                toolTier,
-                out string reason);
+                _harvestTools);
 
+            GameObject node = pick.Node;
             if (node == null)
             {
                 _harvestEmptyScans++;
                 if (_harvestEmptyScans >= HarvestEmptyScansBeforeStop)
                 {
-                    CompanionHarvest.Stop($"acabou: {reason}");
+                    CompanionHarvest.Stop($"acabou: {pick.Reason}");
                 }
                 else
                 {
-                    Plugin.Log.LogInfo($"[ModIA] Coleta: {reason}; procurando de novo.");
+                    Plugin.Log.LogInfo($"[ModIA] Coleta: {pick.Reason}; procurando de novo.");
                 }
 
                 return null;
@@ -786,9 +789,9 @@ namespace ModAIValheim.Companion
             _harvestEmptyScans = 0;
             CompanionHarvest.SetNode(node);
 
+            HarvestPrefabInfo info = pick.Info;
             _harvestTool = null;
-            if (CompanionHarvestScanner.TryGetInfo(node, out HarvestPrefabInfo info) &&
-                CompanionHarvestScanner.NeedsTool(info.Kind))
+            if (CompanionHarvestScanner.NeedsTool(info.Kind))
             {
                 if (CompanionInventory.TryEquipBestHarvestTool(
                         this, info.Modifiers, info.MinToolTier, CompanionHarvest.ResourceName, out string tool))
@@ -800,9 +803,15 @@ namespace ModAIValheim.Companion
             // O nó entra no follow do motor nativo: é ele que faz o pathfinding até lá.
             base.SetFollowTarget(node);
 
+            string cost = pick.Hits > 0
+                ? $"~{pick.Hits} golpe(s)"
+                : "interação direta";
+
             Plugin.Log.LogInfo(
-                $"[ModIA] Coleta: alvo '{node.name}' ({info.Kind}), ferramenta " +
-                $"'{_harvestTool ?? "atual"}' — {reason}.");
+                $"[ModIA] Coleta: alvo '{node.name}' ({info.Kind}{(pick.Primary ? ", fonte" : ", direto")}), " +
+                $"rende ~{pick.Yield:0.#} '{CompanionHarvest.ResourceName}' em {cost}, " +
+                $"ferramenta '{_harvestTool ?? "atual"}' — {pick.Reason}, " +
+                $"a {pick.Distance:0.#} m, score {pick.Score:0.#}.");
             return node;
         }
 

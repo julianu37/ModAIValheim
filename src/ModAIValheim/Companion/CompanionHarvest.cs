@@ -16,8 +16,9 @@ namespace ModAIValheim.Companion
     ///   <item><description>o jogador diz <b>qual recurso</b> quer (nome do item que cai do nó —
     ///   <c>Wood</c>, <c>Stone</c>, <c>Raspberry</c>…), opcionalmente com uma quantidade;</description></item>
     ///   <item><description>o companheiro procura nós no raio configurado e escolhe o de maior
-    ///   <b>facilidade</b> (<see cref="CompanionHarvestScanner"/>), pontuando quantidade, vida e
-    ///   distância — a mesma fórmula usada pelo Thrall;</description></item>
+    ///   <b>valor esperado</b> (<see cref="CompanionHarvestScanner"/>), pontuando o rendimento do
+    ///   recurso pedido, o esforço (golpes) e a distância — ver
+    ///   <c>CompanionHarvestScanner.CalculateScore</c>;</description></item>
     ///   <item><description>equipa a ferramenta adequada, anda até o nó, bate nele até destruí-lo,
     ///   pega os drops e passa para o próximo — até atingir a quantidade pedida ou acabar o raio.</description></item>
     /// </list>

@@ -250,26 +250,64 @@ namespace ModAIValheim.Companion
         // ---------------------------------------------------------------------
 
         /// <summary>
+        /// Buffer reaproveitado da última consulta de ferramentas (a busca de nós roda a cada
+        /// 0,5 s e não pode alocar por varredura).
+        /// </summary>
+        private static readonly List<HarvestToolProfile> s_toolBuffer = new List<HarvestToolProfile>();
+
+        /// <summary>
+        /// Preenche <paramref name="buffer"/> com as ferramentas de golpe do companheiro (tier +
+        /// dano por tipo). É o que a busca de nós usa para estimar golpes e saber o que ele
+        /// <b>consegue</b> arranhar: tier abaixo do mínimo do nó é recusado pelo próprio jogo
+        /// (<c>HitData.CheckToolTier</c>).
+        /// </summary>
+        internal static void GetHarvestToolProfiles(CompanionAI companion, List<HarvestToolProfile> buffer)
+        {
+            if (buffer == null)
+            {
+                return;
+            }
+
+            buffer.Clear();
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return;
+            }
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (!IsHarvestTool(item))
+                {
+                    continue;
+                }
+
+                HarvestToolProfile profile = default;
+                profile.Tier = item.m_shared.m_toolTier;
+                profile.Damage = item.m_shared.m_damages;
+                buffer.Add(profile);
+            }
+        }
+
+        /// <summary>
         /// Maior <c>m_toolTier</c> entre as ferramentas disponíveis no inventário do companheiro.
         /// O tier é o que o jogo cobra para arranhar o nó (<c>HitData.CheckToolTier</c>): sem ele o
         /// golpe não faz dano nenhum (o jogo mostra "duro demais").
         /// </summary>
         internal static int GetBestAvailableToolTier(CompanionAI companion)
         {
-            Humanoid humanoid = Resolve(companion);
-            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
-            if (inventory == null)
-            {
-                return 0;
-            }
+            GetHarvestToolProfiles(companion, s_toolBuffer);
 
             int best = 0;
-            List<ItemDrop.ItemData> items = inventory.GetAllItems();
-            for (int i = 0; i < items.Count; i++)
+            for (int i = 0; i < s_toolBuffer.Count; i++)
             {
-                if (IsHarvestTool(items[i]) && items[i].m_shared.m_toolTier > best)
+                if (s_toolBuffer[i].Tier > best)
                 {
-                    best = items[i].m_shared.m_toolTier;
+                    best = s_toolBuffer[i].Tier;
                 }
             }
 
@@ -395,44 +433,14 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
-        /// Dano efetivo da ferramenta contra as resistências do nó (tabela de
-        /// <c>HitData.DamageModifiers</c> → multiplicador, a mesma do <c>ApplyModifier</c> do jogo).
+        /// Dano efetivo da ferramenta contra as resistências do nó. A tabela de
+        /// <c>HitData.DamageModifiers</c> → multiplicador vive em
+        /// <see cref="CompanionHarvestScanner.EffectiveDamage"/>, para a escolha da ferramenta e a
+        /// pontuação do nó usarem exatamente a mesma conta.
         /// </summary>
         private static float CalculateToolEffectiveness(ItemDrop.ItemData tool, HitData.DamageModifiers modifiers)
         {
-            HitData.DamageTypes damage = tool.m_shared.m_damages;
-
-            float total = 0f;
-            total += damage.m_blunt * ModifierValue(modifiers.m_blunt);
-            total += damage.m_slash * ModifierValue(modifiers.m_slash);
-            total += damage.m_pierce * ModifierValue(modifiers.m_pierce);
-            total += damage.m_chop * ModifierValue(modifiers.m_chop);
-            total += damage.m_pickaxe * ModifierValue(modifiers.m_pickaxe);
-            return total;
-        }
-
-        private static float ModifierValue(HitData.DamageModifier modifier)
-        {
-            switch (modifier)
-            {
-                case HitData.DamageModifier.SlightlyResistant:
-                    return 0.75f;
-                case HitData.DamageModifier.Resistant:
-                    return 0.5f;
-                case HitData.DamageModifier.VeryResistant:
-                    return 0.25f;
-                case HitData.DamageModifier.SlightlyWeak:
-                    return 1.25f;
-                case HitData.DamageModifier.Weak:
-                    return 1.5f;
-                case HitData.DamageModifier.VeryWeak:
-                    return 2f;
-                case HitData.DamageModifier.Immune:
-                case HitData.DamageModifier.Ignore:
-                    return 0f;
-                default:
-                    return 1f;
-            }
+            return CompanionHarvestScanner.EffectiveDamage(tool.m_shared.m_damages, modifiers);
         }
 
         // ---------------------------------------------------------------------

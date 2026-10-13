@@ -23,12 +23,19 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.6";
+        public const string PluginVersion = "0.2.7";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
 
-        private ConfigEntry<bool> _logDetalhado;
+        /// <summary>
+        /// <c>Geral/LogDetalhado</c>: liga os logs de desenvolvimento (hoje, o diagnóstico por
+        /// categoria da varredura de coleta). Exposto como estático porque o scanner roda fora da
+        /// instância do plugin.
+        /// </summary>
+        internal static bool LogDetalhado => _logDetalhado != null && _logDetalhado.Value;
+
+        private static ConfigEntry<bool> _logDetalhado;
         private ConfigEntry<KeyCode> _spawnKey;
         private ConfigEntry<KeyCode> _dismissKey;
         private ConfigEntry<bool> _equipLoadoutOnSpawn;
@@ -307,8 +314,7 @@ namespace ModAIValheim
             if (_logDetalhado.Value)
             {
                 Log.LogWarning("Log detalhado ligado - ModIA pronto para o desenvolvimento.");
-            }
-        }
+            }        }
 
         /// <summary>
         /// Aplica os patches Harmony do mod (observadores de dano do combate). Fica isolado num

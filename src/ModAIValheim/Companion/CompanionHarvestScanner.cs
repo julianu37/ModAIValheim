@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
 namespace ModAIValheim.Companion
@@ -26,41 +28,81 @@ namespace ModAIValheim.Companion
         /// <summary>Rocha grande de vários golpes (<c>MineRock5</c>) — precisa de picareta.</summary>
         MineRock5,
 
-        /// <summary>Destrutível (arbusto/entulho) com drops próprios (<c>Destructible</c>).</summary>
+        /// <summary>Destrutível (arbusto/entulho/coto) com drops próprios (<c>Destructible</c>).</summary>
         Destructible,
     }
 
     /// <summary>
-    /// Dados de um <b>prefab</b> de nó (não da instância): tipo, drops, vida, resistências e tier
-    /// mínimo de ferramenta. É o equivalente local do <c>resourceDatabase</c> do Thrall, mas
-    /// construído sob demanda (só para os prefabs que aparecem na varredura) em vez de varrer o
-    /// mundo inteiro no início do mundo.
+    /// Uma entrada de <c>DropTable</c> já decodificada: item, faixa de stack e o que o sorteio do
+    /// jogo faria com ela (<c>peso/total</c>, número de sorteios e chance da tabela). Guardar a
+    /// tabela como <b>dados</b> — em vez de depender de um componente vivo — é o que permite estimar
+    /// o rendimento de um nó (e o da cascata de toras que ele gera).
+    /// </summary>
+    internal struct HarvestDrop
+    {
+        public int ItemHash;
+        public int StackMin;
+        public int StackMax;
+        public float Weight;
+        public float WeightTotal;
+        public float Rolls;
+        public float Chance;
+    }
+
+    /// <summary>
+    /// Ferramenta que o companheiro pode usar para golpear um nó: tier (a trava dura do jogo,
+    /// <c>HitData.CheckToolTier</c>) e o dano por tipo (para cruzar com as resistências do nó).
+    /// </summary>
+    internal struct HarvestToolProfile
+    {
+        public int Tier;
+        public HitData.DamageTypes Damage;
+    }
+
+    /// <summary>
+    /// Dados de um <b>prefab</b> de nó (não da instância): tipo, drops, vida, resistências, tier
+    /// mínimo de ferramenta e o que ele gera quando é destruído. É o equivalente local do
+    /// <c>resourceDatabase</c> do Thrall, mas construído sob demanda (só para os prefabs que
+    /// aparecem na varredura) em vez de varrer o mundo inteiro no início do mundo.
     /// </summary>
     internal struct HarvestPrefabInfo
     {
         public HarvestNodeKind Kind;
 
-        /// <summary>Hashes (<c>GetStableHashCode</c>) dos nomes dos prefabs de item que este nó dropa.</summary>
-        public int[] DropHashes;
-
-        public int DropMin;
-        public int DropMax;
+        /// <summary>Tabela de drops decodificada (base do rendimento estimado).</summary>
+        public HarvestDrop[] Drops;
 
         public float Health;
         public int MinToolTier;
         public HitData.DamageModifiers Modifiers;
 
-        /// <summary>True quando o recurso pedido está entre os drops deste prefab.</summary>
-        public bool DropsResource(int resourceHash)
+        /// <summary>
+        /// Prefab gerado quando o nó é destruído (tronco de uma árvore, tora menor de uma tora) e
+        /// quantas cópias o jogo instancia. É por aqui que o rendimento real aparece: uma Beech1 não
+        /// dropa madeira nenhuma — ela <i>gera</i> as toras, e a madeira está na tabela delas.
+        /// </summary>
+        public GameObject ChildPrefab;
+        public int ChildCount;
+
+        /// <summary>Quantas partes destrutíveis o nó tem (áreas de golpe de pedra/minério).</summary>
+        public int Parts;
+
+        /// <summary>
+        /// O recurso está na tabela deste prefab? <b>Atenção:</b> não é o mesmo que "o nó rende o
+        /// recurso" — a árvore não lista madeira, quem lista são as toras que ela gera (ver
+        /// <see cref="CompanionHarvestScanner.EstimateYield"/>). Serve para separar, no diagnóstico,
+        /// "não é fonte deste item" de "é fonte, mas o sorteio rende zero".
+        /// </summary>
+        public bool DropsItem(int resourceHash)
         {
-            if (DropHashes == null)
+            if (Drops == null)
             {
                 return false;
             }
 
-            for (int i = 0; i < DropHashes.Length; i++)
+            for (int i = 0; i < Drops.Length; i++)
             {
-                if (DropHashes[i] == resourceHash)
+                if (Drops[i].ItemHash == resourceHash)
                 {
                     return true;
                 }
@@ -68,6 +110,37 @@ namespace ModAIValheim.Companion
 
             return false;
         }
+    }
+
+    /// <summary>
+    /// Nó escolhido por uma varredura, com tudo o que o log e a IA precisam: qual é, que tipo,
+    /// quanto se espera tirar dele, quantos golpes custa e por que ele ganhou.
+    /// </summary>
+    internal struct HarvestPick
+    {
+        public GameObject Node;
+        public HarvestPrefabInfo Info;
+
+        /// <summary>Unidades do recurso pedido que o nó rende (incluindo a cascata de toras).</summary>
+        public float Yield;
+
+        /// <summary>Golpes estimados até quebrar o nó (0 quando a interação é direta).</summary>
+        public int Hits;
+
+        /// <summary>Maior tier de ferramenta do companheiro capaz de arranhar este nó (-1: nenhum).</summary>
+        public int ToolTier;
+
+        public float Distance;
+        public float Score;
+
+        /// <summary>Fonte (precisa de golpe) x direto (colher planta / pegar item do chão).</summary>
+        public bool Primary;
+
+        /// <summary>False quando o companheiro não tem ferramenta capaz de fazer dano no nó.</summary>
+        public bool Breakable;
+
+        /// <summary>Descrição da varredura (candidatos, distância, score), montada pelo scanner.</summary>
+        public string Reason;
     }
 
     /// <summary>
@@ -83,18 +156,28 @@ namespace ModAIValheim.Companion
     /// </para>
     ///
     /// <para>
-    /// <b>Como escolhe:</b> mesma heurística de "facilidade" do Thrall
-    /// (<c>Resource.CalculateEaseScore</c>), com bônus por categoria: quantidade (30 %),
-    /// <c>100/vida</c> (30 %) e <c>100/(1+distância)</c> (40 %). Nós que a ferramenta disponível
-    /// não consegue sequer arranhar levam penalidade (tier mínimo da ferramenta), e itens no chão /
-    /// colhíveis ganham bônus — pegar o que já caiu é barato e é o que conta para a meta.
+    /// <b>Como escolhe:</b> compara <i>valor × esforço × distância</i> de forma comparável entre
+    /// categorias:
     /// </para>
+    /// <list type="bullet">
+    ///   <item><description><b>valor</b> (50 %): unidades do recurso pedido que o nó rende — a
+    ///   tabela de drops do próprio nó <i>mais</i> a cascata do que ele gera ao ser destruído
+    ///   (a árvore gera as toras; a tora gera as toras menores; cada área de uma rocha dropa a
+    ///   tabela). É o que faz uma árvore (~20 madeiras) ganhar de um galho (1 madeira).</description></item>
+    ///   <item><description><b>esforço</b> (20 %): golpes estimados (<c>vida × partes / dano efetivo
+    ///   da melhor ferramenta disponível</c>) — o que a ferramenta não consegue arranhar perde
+    ///   quase todo o valor.</description></item>
+    ///   <item><description><b>distância</b> (30 %): <c>100/(1+d)</c>. É só desempate: perto do
+    ///   companheiro sempre há galhos, e com peso alto (como na fórmula antiga) ele nunca saía do
+    ///   lugar.</description></item>
+    /// </list>
     ///
     /// <para>
     /// <b>O que nunca vira alvo:</b> construções do jogador (<c>WearNTear</c>/<c>Piece</c>), baús e
     /// contêineres (<c>Container</c>), personagens e qualquer coisa sem <see cref="ZNetView"/>
-    /// (terreno, rochas do heightmap). Nós dentro d'água ou dentro/nomeadamente perto de uma
-    /// construção também são descartados.
+    /// (terreno, rochas do heightmap). Nós dentro d'água, encostados numa construção ou cujo
+    /// rendimento estimado do recurso pedido é zero (a viagem não renderia nada) também ficam de
+    /// fora.
     /// </para>
     /// </summary>
     internal static class CompanionHarvestScanner
@@ -105,15 +188,67 @@ namespace ModAIValheim.Companion
         /// <summary>Raio (m) de construção do jogador que desqualifica um nó.</summary>
         private const float PlayerBuildAvoidRadius = 2.5f;
 
+        /// <summary>Categorias contadas na telemetria da varredura (índice = <see cref="HarvestNodeKind"/>).</summary>
+        private const int KindCount = (int)HarvestNodeKind.Destructible + 1;
+
+        /// <summary>Profundidade máxima da cascata (árvore → tora → tora menor → …).</summary>
+        private const int MaxChainDepth = 3;
+
+        /// <summary>Máximo de cópias de um filho contadas no rendimento (defensivo contra prefabs cíclicos).</summary>
+        private const int MaxChildCopies = 4;
+
+        /// <summary>Teto do rendimento estimado (o termo de valor já satura em 10 unidades).</summary>
+        private const float MaxYield = 100f;
+
+        /// <summary>Máximo de áreas de golpe contadas como multiplicador de rendimento/esforço.</summary>
+        private const int MaxParts = 12;
+
+        /// <summary>Pontos por unidade do recurso (10 unidades saturam o termo de valor).</summary>
+        internal const float UnitValue = 10f;
+
+        /// <summary>Teto de cada termo da pontuação (valor, esforço e proximidade entram em 0–100).</summary>
+        internal const float TermCeiling = 100f;
+
+        /// <summary>Golpes máximos considerados (evita esforço infinito virando divisão por zero).</summary>
+        private const int MaxHits = 50;
+
+        private const float ValueWeight = 0.5f;
+        private const float EffortWeight = 0.2f;
+        private const float ProximityWeight = 0.3f;
+
+        /// <summary>Nó que a ferramenta disponível não arranha: fica na fila, mas no fim dela.</summary>
+        private const float UnbreakablePenalty = 0.1f;
+
         private static readonly Collider[] s_colliders = new Collider[ColliderBufferSize];
         private static readonly Collider[] s_fallbackColliders = new Collider[ColliderBufferSize];
         private static readonly HashSet<int> s_seen = new HashSet<int>();
         private static readonly Dictionary<int, HarvestPrefabInfo> s_prefabs = new Dictionary<int, HarvestPrefabInfo>();
+        private static readonly Dictionary<long, float> s_yields = new Dictionary<long, float>();
         private static readonly Dictionary<int, float> s_blacklist = new Dictionary<int, float>();
         private static readonly List<int> s_expired = new List<int>();
         private static readonly Collider[] s_buildBuffer = new Collider[16];
-        private static readonly List<int> s_dropHashes = new List<int>();
+        private static readonly List<HarvestDrop> s_drops = new List<HarvestDrop>();
         private static readonly RaycastHit[] s_rayHits = new RaycastHit[8];
+        private static readonly StringBuilder s_diag = new StringBuilder(512);
+
+        // Telemetria da última varredura (por categoria e por motivo de descarte).
+        private static readonly int[] s_kindSeen = new int[KindCount];
+        private static readonly int[] s_kindMatched = new int[KindCount];
+        private static readonly int[] s_layerSeen = new int[32];
+        private static int s_scanColliders;
+        private static int s_scanRoots;
+        private static int s_scanClassified;
+        private static int s_scanBlacklisted;
+        private static int s_scanNoDrop;
+        private static int s_scanNoResource;
+        private static int s_scanNoYield;
+        private static int s_scanNotHarvestable;
+        private static int s_scanUnderwater;
+        private static int s_scanBuild;
+        private static int s_scanFar;
+        private static int s_scanPrimary;
+        private static int s_scanFallback;
+        private static bool s_scanSaturated;
 
         private static int s_resourceMask;
         private static int s_buildMask;
@@ -124,6 +259,7 @@ namespace ModAIValheim.Companion
         internal static void Shutdown()
         {
             s_prefabs.Clear();
+            s_yields.Clear();
             s_blacklist.Clear();
             s_seen.Clear();
             s_overflowWarned = false;
@@ -151,49 +287,48 @@ namespace ModAIValheim.Companion
         // ---------------------------------------------------------------------
 
         /// <summary>
-        /// Procura o melhor nó para o recurso pedido e devolve a descrição da escolha no log.
-        /// <paramref name="availableToolTier"/> é o maior tier de ferramenta no inventário do
-        /// companheiro (usado só para pontuar nós que ele não conseguiria quebrar).
+        /// Procura o melhor nó para o recurso pedido. <paramref name="tools"/> são as ferramentas de
+        /// golpe do companheiro (tier + dano): servem para estimar golpes e para identificar o que
+        /// ele não consegue arranhar. O <see cref="HarvestPick.Reason"/> sempre sai preenchido.
         /// </summary>
-        internal static GameObject FindBestNode(
+        internal static HarvestPick FindBestNode(
             Vector3 origin,
             string resource,
             float radius,
             bool includeDrops,
-            int availableToolTier,
-            out string reason)
+            List<HarvestToolProfile> tools)
         {
-            reason = null;
+            HarvestPick pick = default;
+            pick.ToolTier = -1;
 
             if (string.IsNullOrEmpty(resource))
             {
-                reason = "nenhum recurso definido";
-                return null;
+                pick.Reason = "nenhum recurso definido";
+                return pick;
             }
 
             EnsureMasks();
             PurgeBlacklist(Time.time);
+            ResetScanStats();
 
             int resourceHash = resource.GetStableHashCode();
             int count = Physics.OverlapSphereNonAlloc(
                 origin, radius, s_colliders, s_resourceMask, QueryTriggerInteraction.Collide);
 
+            s_scanColliders = count;
+            s_scanSaturated = count >= s_colliders.Length;
             s_seen.Clear();
-
-            GameObject best = null;
-            float bestScore = float.MinValue;
-            int candidates = 0;
 
             if (count > 0)
             {
                 EvaluateCandidates(
                     s_colliders, Mathf.Min(count, s_colliders.Length), origin, radius, resourceHash,
-                    includeDrops, availableToolTier, ref best, ref bestScore, ref candidates);
+                    includeDrops, tools, ref pick);
             }
 
             // Buffer cheio: roda uma segunda passada num raio menor, para garantir que os nós
             // vizinhos (os que interessam) entrem na conta. O dedup evita reprocessar nada.
-            if (count >= s_colliders.Length)
+            if (s_scanSaturated)
             {
                 if (!s_overflowWarned)
                 {
@@ -208,27 +343,20 @@ namespace ModAIValheim.Companion
                 int fallbackCount = Physics.OverlapSphereNonAlloc(
                     origin, fallbackRadius, s_fallbackColliders, s_resourceMask, QueryTriggerInteraction.Collide);
 
+                s_scanColliders += fallbackCount;
                 EvaluateCandidates(
                     s_fallbackColliders, Mathf.Min(fallbackCount, s_fallbackColliders.Length), origin,
-                    radius, resourceHash, includeDrops, availableToolTier, ref best, ref bestScore,
-                    ref candidates);
+                    radius, resourceHash, includeDrops, tools, ref pick);
             }
 
-            if (best == null)
+            pick.Reason = DescribeScan(resource, radius);
+
+            if (Plugin.LogDetalhado)
             {
-                reason = candidates == 0
-                    ? $"nenhum nó de '{resource}' no raio de {radius:0} m " +
-                      "(confira Coleta/Camadas se o recurso existe por perto)"
-                    : $"nenhum nó de '{resource}' utilizável";
-                return null;
+                LogDiagnostic(resource, radius, in pick);
             }
 
-            TryGetInfo(best, out HarvestPrefabInfo bestInfo);
-            float bestDistance = Vector3.Distance(best.transform.position, origin);
-            reason =
-                $"'{best.name}' ({bestInfo.Kind}, {candidates} candidato(s)), " +
-                $"a {bestDistance:0.#} m, score {bestScore:0.#}";
-            return best;
+            return pick;
         }
 
         /// <summary>
@@ -242,10 +370,8 @@ namespace ModAIValheim.Companion
             float radius,
             int resourceHash,
             bool includeDrops,
-            int availableToolTier,
-            ref GameObject best,
-            ref float bestScore,
-            ref int candidates)
+            List<HarvestToolProfile> tools,
+            ref HarvestPick pick)
         {
             for (int i = 0; i < count; i++)
             {
@@ -261,8 +387,12 @@ namespace ModAIValheim.Companion
                     continue;
                 }
 
+                s_scanRoots++;
+                s_layerSeen[node.layer & 31]++;
+
                 if (s_blacklist.ContainsKey(node.GetInstanceID()))
                 {
+                    s_scanBlacklisted++;
                     continue;
                 }
 
@@ -271,54 +401,95 @@ namespace ModAIValheim.Companion
                     continue;
                 }
 
+                s_scanClassified++;
+                s_kindSeen[(int)info.Kind]++;
+
                 if (info.Kind == HarvestNodeKind.ItemDrop && !includeDrops)
                 {
+                    s_scanNoDrop++;
                     continue;
                 }
 
-                if (!info.DropsResource(resourceHash))
+                // O rendimento do recurso pedido é o que dá sentido à viagem: um nó que não rende
+                // nada (tabela sem o item, cascata desconhecida) não vira alvo. É esta conta — e não
+                // a tabela do próprio nó — que decide, porque a madeira de uma árvore só aparece nas
+                // toras que ela gera.
+                float yield = EstimateYield(node, info, resourceHash);
+                if (yield <= 0f)
                 {
+                    if (info.DropsItem(resourceHash))
+                    {
+                        s_scanNoYield++;
+                    }
+                    else
+                    {
+                        s_scanNoResource++;
+                    }
+
                     continue;
                 }
 
                 if (!IsHarvestableNow(node, info.Kind))
                 {
+                    s_scanNotHarvestable++;
                     continue;
                 }
 
                 Vector3 position = node.transform.position;
                 if (IsUnderwater(position))
                 {
+                    s_scanUnderwater++;
                     continue;
                 }
 
                 if (NeedsTool(info.Kind) && HasPlayerBuildNear(position))
                 {
+                    s_scanBuild++;
                     continue;
                 }
 
                 float distance = Vector3.Distance(position, origin);
                 if (distance > radius)
                 {
+                    s_scanFar++;
                     continue;
                 }
 
-                candidates++;
-                float score = CalculateEaseScore(info, distance, availableToolTier);
+                s_kindMatched[(int)info.Kind]++;
 
-                if (info.Kind == HarvestNodeKind.ItemDrop)
+                int toolTier = -1;
+                float damage = NeedsTool(info.Kind)
+                    ? BestToolDamage(info, tools, out toolTier)
+                    : 0f;
+                bool breakable = !NeedsTool(info.Kind) ||
+                                 (damage > 0f && toolTier >= info.MinToolTier);
+
+                int hits = EstimateHits(info, damage, breakable);
+                float score = CalculateScore(yield, hits, distance, breakable);
+
+                if (NeedsTool(info.Kind) && breakable)
                 {
-                    // O cache é por prefab, mas pilhas no chão têm tamanhos diferentes: aqui vale o
-                    // stack da instância (pegar 20 de uma vez vale mais que pegar 1).
-                    int stack = GetDropStack(node);
-                    score += (stack - 1) * 10f * 0.3f;
+                    s_scanPrimary++;
+                }
+                else
+                {
+                    s_scanFallback++;
                 }
 
-                if (score > bestScore)
+                if (pick.Node != null && score <= pick.Score)
                 {
-                    bestScore = score;
-                    best = node;
+                    continue;
                 }
+
+                pick.Node = node;
+                pick.Info = info;
+                pick.Yield = yield;
+                pick.Hits = hits;
+                pick.ToolTier = toolTier;
+                pick.Distance = distance;
+                pick.Score = score;
+                pick.Primary = NeedsTool(info.Kind);
+                pick.Breakable = breakable;
             }
         }
 
@@ -335,7 +506,10 @@ namespace ModAIValheim.Companion
                 return false;
             }
 
-            return info.DropsResource(resource.GetStableHashCode()) && IsHarvestableNow(node, info.Kind);
+            // Mesma pergunta da varredura: este nó ainda rende o recurso pedido? (o rendimento é
+            // cacheado por prefab + recurso, então isto é um lookup).
+            return EstimateYield(node, info, resource.GetStableHashCode()) > 0f &&
+                   IsHarvestableNow(node, info.Kind);
         }
 
         /// <summary>Tamanho do stack de um <c>ItemDrop</c> no chão (1 se não der para ler).</summary>
@@ -346,45 +520,179 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
-        // Pontuação
+        // Rendimento (o que o nó realmente entrega)
         // ---------------------------------------------------------------------
 
         /// <summary>
-        /// "Facilidade" de um nó — a mesma fórmula do <c>Resource.CalculateEaseScore</c> do Thrall
-        /// (quantidade 30 %, vida 30 %, distância 40 %), com bônus por categoria.
+        /// Unidades do recurso pedido que o nó entrega, <b>incluindo a cascata que ele gera</b>: a
+        /// tabela do próprio nó, as cópias que ele instancia quando é destruído (tronco de árvore,
+        /// toras menores) e as áreas de golpe (rochas/minérios). O resultado por prefab+recurso fica
+        /// em cache — a varredura seguinte só faz um lookup.
         /// </summary>
-        internal static float CalculateEaseScore(HarvestPrefabInfo info, float distance, int availableToolTier)
+        internal static float EstimateYield(GameObject node, HarvestPrefabInfo info, int resourceHash)
         {
-            float averageAmount = (info.DropMin + info.DropMax) * 0.5f * 10f;
-            float health = info.Health > 0f ? info.Health : 1f;
-            float ease = 100f / health;
-            float proximity = 100f / (1f + distance);
-
-            float score = averageAmount * 0.3f + ease * 0.3f + proximity * 0.4f;
-
-            // Ferramenta insuficiente (tier mínimo acima do disponível): deixa no fim da fila, mas
-            // ainda escolhível se for o único nó — nesse caso a IA vai desistir e vetar depois.
-            if (NeedsTool(info.Kind) && info.MinToolTier > availableToolTier)
+            if (info.Kind == HarvestNodeKind.ItemDrop)
             {
-                score *= 0.2f;
+                // Uma pilha no chão entrega o stack inteiro numa única interação.
+                return GetDropStack(node);
             }
 
-            return score * CategoryBonus(info.Kind);
+            string prefabName = node != null ? Utils.GetPrefabName(node.name) : string.Empty;
+            long key = MakeYieldKey(prefabName.GetStableHashCode(), resourceHash);
+            if (s_yields.TryGetValue(key, out float cached))
+            {
+                return cached;
+            }
+
+            float yield = EstimateChain(info, resourceHash, MaxChainDepth);
+            s_yields[key] = yield;
+            return yield;
         }
 
-        private static float CategoryBonus(HarvestNodeKind kind)
+        private static float EstimateChain(HarvestPrefabInfo info, int resourceHash, int depth)
         {
-            switch (kind)
+            float total = TableYield(info, resourceHash);
+            if (total > 0f && info.Parts > 1)
             {
-                case HarvestNodeKind.ItemDrop:
-                    // Já está no chão: pegar é barato e é o que conta para a quantidade pedida.
-                    return 1.6f;
-                case HarvestNodeKind.Pickable:
-                    // Colher não gasta ferramenta.
-                    return 1.3f;
-                default:
-                    return 1f;
+                total *= info.Parts;
             }
+
+            if (depth <= 0 || total >= MaxYield ||
+                info.ChildPrefab == null || info.ChildCount <= 0)
+            {
+                return Mathf.Min(total, MaxYield);
+            }
+
+            if (TryGetInfo(info.ChildPrefab, out HarvestPrefabInfo child) &&
+                child.Kind != HarvestNodeKind.None)
+            {
+                int copies = Mathf.Clamp(info.ChildCount, 1, MaxChildCopies);
+                float childYield = EstimateChain(child, resourceHash, depth - 1);
+                if (childYield > 0f)
+                {
+                    total += childYield * copies;
+                }
+            }
+
+            return Mathf.Min(total, MaxYield);
+        }
+
+        /// <summary>
+        /// Unidades esperadas do recurso a partir de uma tabela de drops, do jeito que o jogo
+        /// sorteia (<c>DropTable.GetDropList</c>): <c>chance × sorteios × (peso/total) × stack</c>,
+        /// multiplicado pelo <c>Game.m_resourceRate</c> do mundo (é o que o jogo faz).
+        /// </summary>
+        private static float TableYield(HarvestPrefabInfo info, int resourceHash)
+        {
+            if (info.Drops == null || info.Drops.Length == 0)
+            {
+                return 0f;
+            }
+
+            float rate = Game.m_resourceRate > 0f ? Game.m_resourceRate : 1f;
+            float expected = 0f;
+
+            for (int i = 0; i < info.Drops.Length; i++)
+            {
+                HarvestDrop drop = info.Drops[i];
+                if (drop.ItemHash != resourceHash)
+                {
+                    continue;
+                }
+
+                float totalWeight = drop.WeightTotal > 0f ? drop.WeightTotal : 1f;
+                float weight = drop.WeightTotal > 0f ? Mathf.Max(0f, drop.Weight) : 1f;
+                int stackMin = Mathf.Max(1, drop.StackMin);
+                int stackMax = Mathf.Max(stackMin, drop.StackMax);
+                float stack = (stackMin + stackMax) * 0.5f;
+                float rolls = drop.Rolls > 0f ? drop.Rolls : 1f;
+
+                expected += (weight / totalWeight) * stack * rolls * Mathf.Clamp01(drop.Chance);
+            }
+
+            return expected * rate;
+        }
+
+        private static long MakeYieldKey(int prefabHash, int resourceHash)
+        {
+            return ((long)prefabHash << 32) | (uint)resourceHash;
+        }
+
+        // ---------------------------------------------------------------------
+        // Ferramenta e pontuação
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Maior dano efetivo que o companheiro consegue aplicar neste nó com uma das ferramentas de
+        /// <paramref name="tools"/> (0 = nenhuma serve). Ferramenta com tier abaixo do mínimo do nó é
+        /// descartada: é a trava dura do jogo (<c>HitData.CheckToolTier</c>).
+        /// </summary>
+        private static float BestToolDamage(
+            HarvestPrefabInfo info,
+            List<HarvestToolProfile> tools,
+            out int bestTier)
+        {
+            bestTier = -1;
+            if (tools == null)
+            {
+                return 0f;
+            }
+
+            float best = 0f;
+            for (int i = 0; i < tools.Count; i++)
+            {
+                HarvestToolProfile tool = tools[i];
+                if (tool.Tier < info.MinToolTier)
+                {
+                    continue;
+                }
+
+                float damage = EffectiveDamage(tool.Damage, info.Modifiers);
+                if (damage > best)
+                {
+                    best = damage;
+                    bestTier = tool.Tier;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Golpes estimados até quebrar o nó: vida total (vida × partes) dividida pelo dano efetivo
+        /// por golpe. Sem ferramenta capaz o esforço vai ao teto e o nó perde quase todo o score.
+        /// </summary>
+        private static int EstimateHits(HarvestPrefabInfo info, float damage, bool breakable)
+        {
+            if (!NeedsTool(info.Kind))
+            {
+                return 0;
+            }
+
+            if (!breakable || damage <= 0f)
+            {
+                return MaxHits;
+            }
+
+            float health = Mathf.Max(1f, info.Health) * Mathf.Max(1, info.Parts);
+            return Mathf.Clamp(Mathf.CeilToInt(health / damage), 1, MaxHits);
+        }
+
+        /// <summary>
+        /// Pontuação comparável entre categorias: <b>valor</b> (unidades do recurso pedido, 50 %),
+        /// <b>esforço</b> (golpes estimados, 20 %) e <b>proximidade</b> (30 %), os três na mesma
+        /// escala (0–100). É o que corrige o vício da fórmula herdada do Thrall: lá
+        /// <c>100/vida</c> valia 100 pontos de graça para qualquer galho (vida 1) e árvores/pedras
+        /// (vida alta) perdiam mesmo rendendo 20× mais.
+        /// </summary>
+        internal static float CalculateScore(float expectedYield, int hits, float distance, bool breakable)
+        {
+            float value = Mathf.Min(expectedYield * UnitValue, TermCeiling);
+            float effort = TermCeiling / (1f + Mathf.Max(0, hits));
+            float proximity = TermCeiling / (1f + Mathf.Max(0f, distance));
+
+            float score = value * ValueWeight + effort * EffortWeight + proximity * ProximityWeight;
+            return breakable ? score : score * UnbreakablePenalty;
         }
 
         /// <summary>Categorias que exigem golpe (as outras são interação direta).</summary>
@@ -400,6 +708,46 @@ namespace ModAIValheim.Companion
                     return true;
                 default:
                     return false;
+            }
+        }
+
+        /// <summary>
+        /// Dano efetivo de um conjunto de dano contra as resistências do nó (a mesma tabela do
+        /// <c>HitData.ApplyModifier</c>). Fonte única da conta: a escolha da ferramenta
+        /// (<see cref="CompanionInventory.TryEquipBestHarvestTool"/>) usa esta função também.
+        /// </summary>
+        internal static float EffectiveDamage(HitData.DamageTypes damage, HitData.DamageModifiers modifiers)
+        {
+            float total = 0f;
+            total += damage.m_blunt * ModifierValue(modifiers.m_blunt);
+            total += damage.m_slash * ModifierValue(modifiers.m_slash);
+            total += damage.m_pierce * ModifierValue(modifiers.m_pierce);
+            total += damage.m_chop * ModifierValue(modifiers.m_chop);
+            total += damage.m_pickaxe * ModifierValue(modifiers.m_pickaxe);
+            return total;
+        }
+
+        internal static float ModifierValue(HitData.DamageModifier modifier)
+        {
+            switch (modifier)
+            {
+                case HitData.DamageModifier.SlightlyResistant:
+                    return 0.75f;
+                case HitData.DamageModifier.Resistant:
+                    return 0.5f;
+                case HitData.DamageModifier.VeryResistant:
+                    return 0.25f;
+                case HitData.DamageModifier.SlightlyWeak:
+                    return 1.25f;
+                case HitData.DamageModifier.Weak:
+                    return 1.5f;
+                case HitData.DamageModifier.VeryWeak:
+                    return 2f;
+                case HitData.DamageModifier.Immune:
+                case HitData.DamageModifier.Ignore:
+                    return 0f;
+                default:
+                    return 1f;
             }
         }
 
@@ -453,40 +801,37 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
-        /// Classifica um prefab pela ordem de prioridade das categorias e coleta drops/vida/
-        /// resistências/tier de ferramenta. O resultado é cacheado por nome de prefab (o cache é do
-        /// prefab, não da instância — é o papel que o <c>resourceDatabase</c> do Thrall fazia, só
-        /// que sob demanda em vez de varrer o mundo inteiro no início do mundo).
+        /// Classifica um prefab pela ordem de prioridade das categorias e decodifica drops/vida/
+        /// resistências/tier de ferramenta/cascata de destruição. O resultado é cacheado por nome de
+        /// prefab (o cache é do prefab, não da instância — é o papel que o <c>resourceDatabase</c>
+        /// do Thrall fazia, só que sob demanda em vez de varrer o mundo inteiro no início do mundo).
         /// </summary>
         private static HarvestPrefabInfo BuildInfo(GameObject node)
         {
             HarvestPrefabInfo info = default;
-            s_dropHashes.Clear();
-            int dropMin = 0;
-            int dropMax = 0;
+            s_drops.Clear();
 
             bool classified =
-                TryClassifyPickable(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyTreeBase(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyTreeLog(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyMineRock(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyMineRock5(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyDestructible(node, ref info, ref dropMin, ref dropMax) ||
-                TryClassifyItemDrop(node, ref info, ref dropMin, ref dropMax);
+                TryClassifyPickable(node, ref info) ||
+                TryClassifyTreeBase(node, ref info) ||
+                TryClassifyTreeLog(node, ref info) ||
+                TryClassifyMineRock(node, ref info) ||
+                TryClassifyMineRock5(node, ref info) ||
+                TryClassifyDestructible(node, ref info) ||
+                TryClassifyItemDrop(node, ref info);
 
             if (!classified)
             {
                 info.Kind = HarvestNodeKind.None;
             }
 
-            info.DropHashes = s_dropHashes.Count > 0 ? s_dropHashes.ToArray() : null;
-            info.DropMin = dropMin;
-            info.DropMax = dropMax;
-            s_dropHashes.Clear();
+            info.Drops = s_drops.Count > 0 ? s_drops.ToArray() : null;
+
+            s_drops.Clear();
             return info;
         }
 
-        private static bool TryClassifyPickable(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyPickable(GameObject node, ref HarvestPrefabInfo info)
         {
             Pickable pickable = node.GetComponent<Pickable>();
             if (pickable == null)
@@ -496,12 +841,17 @@ namespace ModAIValheim.Companion
 
             info.Kind = HarvestNodeKind.Pickable;
             info.Health = 1f;
-            AddDrop(pickable.m_itemPrefab, pickable.m_amount, pickable.m_amount, ref dropMin, ref dropMax);
-            AddDropTable(pickable.m_extraDrops, ref dropMin, ref dropMax);
+            info.Parts = 1;
+
+            // Colher é garantido (não depende de sorteio): o item da planta entra como uma
+            // "tabela" de 1 sorteio com chance 1; m_extraDrops entra com os parâmetros dele.
+            int amount = Mathf.Max(1, pickable.m_amount);
+            AddDrop(pickable.m_itemPrefab, amount, amount, 1f, 1f, 1f, 1f);
+            AddDropTable(pickable.m_extraDrops);
             return true;
         }
 
-        private static bool TryClassifyTreeBase(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyTreeBase(GameObject node, ref HarvestPrefabInfo info)
         {
             TreeBase tree = node.GetComponent<TreeBase>();
             if (tree == null)
@@ -513,11 +863,18 @@ namespace ModAIValheim.Companion
             info.Health = tree.m_health;
             info.MinToolTier = tree.m_minToolTier;
             info.Modifiers = tree.m_damageModifiers;
-            AddDropTable(tree.m_dropWhenDestroyed, ref dropMin, ref dropMax);
+            info.Parts = 1;
+            AddDropTable(tree.m_dropWhenDestroyed);
+
+            // A madeira de uma árvore NÃO está na tabela dela: está nas toras que ela gera ao cair
+            // (o jogo instancia m_logPrefab uma vez, em SpawnLog). Sem seguir esse filho, uma Beech1
+            // não é candidata a "Wood" — e era exatamente esse o bug da coleta de madeira.
+            info.ChildPrefab = tree.m_logPrefab;
+            info.ChildCount = 1;
             return true;
         }
 
-        private static bool TryClassifyTreeLog(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyTreeLog(GameObject node, ref HarvestPrefabInfo info)
         {
             TreeLog log = node.GetComponent<TreeLog>();
             if (log == null)
@@ -529,11 +886,16 @@ namespace ModAIValheim.Companion
             info.Health = log.m_health;
             info.MinToolTier = log.m_minToolTier;
             info.Modifiers = log.m_damages;
-            AddDropTable(log.m_dropWhenDestroyed, ref dropMin, ref dropMax);
+            info.Parts = 1;
+            AddDropTable(log.m_dropWhenDestroyed);
+
+            // Tora partida gera as toras menores (uma por ponto), cada uma com a própria tabela.
+            info.ChildPrefab = log.m_subLogPrefab;
+            info.ChildCount = log.m_subLogPoints != null ? log.m_subLogPoints.Length : 0;
             return true;
         }
 
-        private static bool TryClassifyMineRock(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyMineRock(GameObject node, ref HarvestPrefabInfo info)
         {
             MineRock rock = node.GetComponent<MineRock>();
             if (rock == null)
@@ -545,11 +907,12 @@ namespace ModAIValheim.Companion
             info.Health = rock.m_health;
             info.MinToolTier = rock.m_minToolTier;
             info.Modifiers = rock.m_damageModifiers;
-            AddDropTable(rock.m_dropItems, ref dropMin, ref dropMax);
+            info.Parts = CountParts(node);
+            AddDropTable(rock.m_dropItems);
             return true;
         }
 
-        private static bool TryClassifyMineRock5(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyMineRock5(GameObject node, ref HarvestPrefabInfo info)
         {
             MineRock5 rock = node.GetComponent<MineRock5>();
             if (rock == null)
@@ -561,11 +924,12 @@ namespace ModAIValheim.Companion
             info.Health = rock.m_health;
             info.MinToolTier = rock.m_minToolTier;
             info.Modifiers = rock.m_damageModifiers;
-            AddDropTable(rock.m_dropItems, ref dropMin, ref dropMax);
+            info.Parts = CountParts(node);
+            AddDropTable(rock.m_dropItems);
             return true;
         }
 
-        private static bool TryClassifyDestructible(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyDestructible(GameObject node, ref HarvestPrefabInfo info)
         {
             Destructible destructible = node.GetComponent<Destructible>();
             if (destructible == null)
@@ -577,19 +941,21 @@ namespace ModAIValheim.Companion
             info.Health = destructible.m_health;
             info.MinToolTier = destructible.m_minToolTier;
             info.Modifiers = destructible.m_damages;
+            info.Parts = 1;
 
-            // Os drops de um Destructible moram num DropOnDestroyed (normalmente filho) ligado ao
-            // m_onDestroyed dele.
-            DropOnDestroyed drops = node.GetComponentInChildren<DropOnDestroyed>();
+            // Os drops de um Destructible (coto, arbusto, entulho) moram num DropOnDestroyed ligado
+            // ao m_onDestroyed dele. A busca inclui filhos inativos porque o mesmo caminho é usado no
+            // carimbo de prefab do ZNetScene (que não passou por Awake/SetActive).
+            DropOnDestroyed drops = FindDropOnDestroyed(node);
             if (drops != null)
             {
-                AddDropTable(drops.m_dropWhenDestroyed, ref dropMin, ref dropMax);
+                AddDropTable(drops.m_dropWhenDestroyed);
             }
 
             return true;
         }
 
-        private static bool TryClassifyItemDrop(GameObject node, ref HarvestPrefabInfo info, ref int dropMin, ref int dropMax)
+        private static bool TryClassifyItemDrop(GameObject node, ref HarvestPrefabInfo info)
         {
             ItemDrop item = node.GetComponent<ItemDrop>();
             if (item == null)
@@ -599,6 +965,7 @@ namespace ModAIValheim.Companion
 
             info.Kind = HarvestNodeKind.ItemDrop;
             info.Health = 1f;
+            info.Parts = 1;
 
             // m_dropPrefab é preenchido no ItemDrop.Awake a partir do ObjectDB; sem ele cai para o
             // próprio nome do objeto (que é o nome do item, com "(Clone)" cortado pelo Utils).
@@ -608,40 +975,95 @@ namespace ModAIValheim.Companion
                 dropPrefab = node;
             }
 
-            AddDrop(dropPrefab, 1, 1, ref dropMin, ref dropMax);
+            AddDrop(dropPrefab, 1, 1, 1f, 1f, 1f, 1f);
             return true;
         }
 
-        private static void AddDropTable(DropTable table, ref int dropMin, ref int dropMax)
+        private static DropOnDestroyed FindDropOnDestroyed(GameObject node)
         {
-            if (table == null || table.m_drops == null)
+            DropOnDestroyed direct = node.GetComponent<DropOnDestroyed>();
+            if (direct != null)
+            {
+                return direct;
+            }
+
+            DropOnDestroyed[] children = node.GetComponentsInChildren<DropOnDestroyed>(true);
+            for (int i = 0; i < children.Length; i++)
+            {
+                if (children[i] != null && children[i].m_dropWhenDestroyed != null)
+                {
+                    return children[i];
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>Áreas de golpe do nó (uma rocha dropa a tabela uma vez por área destruída).</summary>
+        private static int CountParts(GameObject node)
+        {
+            Collider[] colliders = node.GetComponentsInChildren<Collider>(true);
+            int count = colliders != null ? colliders.Length : 1;
+            return Mathf.Clamp(count, 1, MaxParts);
+        }
+
+        /// <summary>
+        /// Decodifica uma <c>DropTable</c> e acrescenta as entradas à tabela do prefab, guardando os
+        /// parâmetros de sorteio da tabela (<c>m_dropMin/m_dropMax/m_dropChance</c> e o peso total).
+        /// </summary>
+        private static void AddDropTable(DropTable table)
+        {
+            if (table == null || table.m_drops == null || table.m_drops.Count == 0)
             {
                 return;
             }
 
             List<DropTable.DropData> drops = table.m_drops;
+            float totalWeight = 0f;
+            for (int i = 0; i < drops.Count; i++)
+            {
+                totalWeight += Mathf.Max(0f, drops[i].m_weight);
+            }
+
+            if (totalWeight <= 0f)
+            {
+                // Tabela com todos os pesos zerados não é sorteável: trata cada entrada como igual.
+                totalWeight = drops.Count;
+            }
+
+            float rolls = (Mathf.Max(0, table.m_dropMin) + Mathf.Max(0, table.m_dropMax)) * 0.5f;
+            float chance = Mathf.Clamp01(table.m_dropChance);
+
             for (int i = 0; i < drops.Count; i++)
             {
                 DropTable.DropData drop = drops[i];
-                AddDrop(drop.m_item, drop.m_stackMin, drop.m_stackMax, ref dropMin, ref dropMax);
+                AddDrop(drop.m_item, drop.m_stackMin, drop.m_stackMax, drop.m_weight, totalWeight, rolls, chance);
             }
         }
 
-        private static void AddDrop(GameObject prefab, int stackMin, int stackMax, ref int dropMin, ref int dropMax)
+        private static void AddDrop(
+            GameObject prefab,
+            int stackMin,
+            int stackMax,
+            float weight,
+            float weightTotal,
+            float rolls,
+            float chance)
         {
-            if (prefab == null)
+            if (prefab == null || stackMax <= 0)
             {
                 return;
             }
 
-            int hash = Utils.GetPrefabName(prefab.name).GetStableHashCode();
-            if (!s_dropHashes.Contains(hash))
-            {
-                s_dropHashes.Add(hash);
-            }
-
-            dropMin += Mathf.Max(0, stackMin);
-            dropMax += Mathf.Max(0, stackMax);
+            HarvestDrop entry = default;
+            entry.ItemHash = Utils.GetPrefabName(prefab.name).GetStableHashCode();
+            entry.StackMin = Mathf.Max(0, stackMin);
+            entry.StackMax = Mathf.Max(0, stackMax);
+            entry.Weight = weight;
+            entry.WeightTotal = weightTotal;
+            entry.Rolls = rolls;
+            entry.Chance = chance;
+            s_drops.Add(entry);
         }
 
         // ---------------------------------------------------------------------
@@ -788,6 +1210,182 @@ namespace ModAIValheim.Companion
             }
 
             return false;
+        }
+
+        // ---------------------------------------------------------------------
+        // Diagnóstico (Coleta/LogDetalhado)
+        // ---------------------------------------------------------------------
+
+        private static void ResetScanStats()
+        {
+            s_scanColliders = 0;
+            s_scanRoots = 0;
+            s_scanClassified = 0;
+            s_scanBlacklisted = 0;
+            s_scanNoDrop = 0;
+            s_scanNoResource = 0;
+            s_scanNoYield = 0;
+            s_scanNotHarvestable = 0;
+            s_scanUnderwater = 0;
+            s_scanBuild = 0;
+            s_scanFar = 0;
+            s_scanPrimary = 0;
+            s_scanFallback = 0;
+            s_scanSaturated = false;
+            Array.Clear(s_kindSeen, 0, s_kindSeen.Length);
+            Array.Clear(s_kindMatched, 0, s_kindMatched.Length);
+            Array.Clear(s_layerSeen, 0, s_layerSeen.Length);
+        }
+
+        /// <summary>Resumo curto da varredura para a linha de log do alvo (candidatos do recurso).</summary>
+        private static string DescribeScan(string resource, float radius)
+        {
+            int matched = s_scanPrimary + s_scanFallback;
+            if (matched == 0)
+            {
+                return s_scanClassified == 0
+                    ? $"nenhum nó de coleta no raio de {radius:0} m ({s_scanColliders} collider(s) " +
+                      "varrido(s); confira Coleta/Camadas se o recurso existe por perto)"
+                    : $"nenhum nó de '{resource}' utilizável no raio de {radius:0} m " +
+                      $"({s_scanClassified} nó(s) classificados; " +
+                      $"{s_scanNoResource} sem o recurso, {s_scanNoYield} sem rendimento, " +
+                      $"{s_scanNotHarvestable} esgotado(s), {s_scanBuild} perto de obra, " +
+                      $"{s_scanUnderwater} submerso(s), {s_scanBlacklisted} vetado(s))";
+            }
+
+            s_diag.Length = 0;
+            s_diag.Append(matched).Append(" candidato(s)");
+            if (s_scanPrimary > 0)
+            {
+                s_diag.Append(", ").Append(s_scanPrimary).Append(" fonte(s)");
+            }
+
+            if (s_kindMatched[(int)HarvestNodeKind.ItemDrop] > 0)
+            {
+                s_diag.Append(", ").Append(s_kindMatched[(int)HarvestNodeKind.ItemDrop]).Append(" no chão");
+            }
+
+            if (s_scanSaturated)
+            {
+                s_diag.Append(" [buffer cheio: raio reduzido nesta passada]");
+            }
+
+            return s_diag.ToString();
+        }
+
+        /// <summary>
+        /// Linha de diagnóstico completa (só com <c>Geral/LogDetalhado = true</c>): quantos nós de cada
+        /// categoria entraram na varredura, quantos casaram com o recurso pedido e por que os outros
+        /// foram descartados. É o que responde "as árvores nem entram na conta?".
+        /// </summary>
+        private static void LogDiagnostic(string resource, float radius, in HarvestPick pick)
+        {
+            s_diag.Length = 0;
+            s_diag.Append("[ModIA] Coleta[diag] '").Append(resource).Append("' raio ")
+                .Append(radius.ToString("0")).Append(" m: colliders=").Append(s_scanColliders)
+                .Append('/').Append(ColliderBufferSize)
+                .Append(s_scanSaturated ? " (saturado)" : string.Empty)
+                .Append(", nós=").Append(s_scanRoots)
+                .Append(", classificados=").Append(s_scanClassified)
+                .Append(" | vistos:");
+            AppendKindBreakdown(s_kindSeen);
+            s_diag.Append(" nas camadas:");
+            AppendLayerBreakdown();
+            s_diag.Append(" | casam com o recurso:")
+                .Append(' ').Append(s_scanPrimary + s_scanFallback)
+                .Append(" (fonte ").Append(s_scanPrimary)
+                .Append(", sobra ").Append(s_scanFallback).Append(");");
+            AppendKindBreakdown(s_kindMatched);
+            s_diag.Append(" | descartes: veto=").Append(s_scanBlacklisted)
+                .Append(", drop desligado=").Append(s_scanNoDrop)
+                .Append(", sem o recurso=").Append(s_scanNoResource)
+                .Append(", sem rendimento=").Append(s_scanNoYield)
+                .Append(", esgotado=").Append(s_scanNotHarvestable)
+                .Append(", submerso=").Append(s_scanUnderwater)
+                .Append(", perto de obra=").Append(s_scanBuild)
+                .Append(", longe=").Append(s_scanFar)
+                .Append(" | escolhido: ");
+
+            if (pick.Node == null)
+            {
+                s_diag.Append("nenhum");
+            }
+            else
+            {
+                s_diag.Append('\'').Append(pick.Node.name).Append("' (").Append(pick.Info.Kind)
+                    .Append(", camada '").Append(LayerMask.LayerToName(pick.Node.layer)).Append('\'')
+                    .Append(", tier ferramenta ").Append(pick.ToolTier)
+                    .Append('/').Append(pick.Info.MinToolTier)
+                    .Append(", ~").Append(pick.Yield.ToString("0.#")).Append(" unidade(s)")
+                    .Append(", ").Append(pick.Hits).Append(" golpe(s)")
+                    .Append(pick.Breakable ? string.Empty : ", SEM ferramenta capaz")
+                    .Append(") score ").Append(pick.Score.ToString("0.#"));
+            }
+
+            Plugin.Log.LogInfo(s_diag.ToString());
+        }
+
+        private static void AppendKindBreakdown(int[] counts)
+        {
+            s_diag.Append(" { ");
+            bool first = true;
+            for (int i = 1; i < counts.Length; i++)
+            {
+                if (counts[i] <= 0)
+                {
+                    continue;
+                }
+
+                if (!first)
+                {
+                    s_diag.Append(", ");
+                }
+
+                s_diag.Append((HarvestNodeKind)i).Append('=').Append(counts[i]);
+                first = false;
+            }
+
+            if (first)
+            {
+                s_diag.Append("—");
+            }
+
+            s_diag.Append(" }");
+        }
+
+        /// <summary>
+        /// Camadas das raízes encontradas na varredura. É o que fecha a dúvida "o nó nem entra na
+        /// conta?" quando a categoria aparece zerada: se a camada das árvores não está aqui, o
+        /// problema é a config <c>Coleta/Camadas</c>, não a classificação.
+        /// </summary>
+        private static void AppendLayerBreakdown()
+        {
+            s_diag.Append(" { ");
+            bool first = true;
+            for (int i = 0; i < s_layerSeen.Length; i++)
+            {
+                if (s_layerSeen[i] <= 0)
+                {
+                    continue;
+                }
+
+                if (!first)
+                {
+                    s_diag.Append(", ");
+                }
+
+                string name = LayerMask.LayerToName(i);
+                s_diag.Append(string.IsNullOrEmpty(name) ? i.ToString() : name)
+                    .Append('=').Append(s_layerSeen[i]);
+                first = false;
+            }
+
+            if (first)
+            {
+                s_diag.Append("—");
+            }
+
+            s_diag.Append(" }");
         }
 
         // ---------------------------------------------------------------------

@@ -40,15 +40,21 @@ Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
 
 ### Coleta de recursos (Fase 2.4b)
 
-O companheiro procura nós de coleta num raio (padrão 40 m), escolhe o de maior "facilidade"
-(quantidade × vida × distância), equipa a **ferramenta adequada** (machado para madeira, picareta
-para pedra — escolhida pelas resistências do nó), bate até destruir, **pega os drops** e segue para o
-próximo nó, repetindo até a **quantidade** pedida ou até não haver mais nó no raio.
+O companheiro procura nós de coleta num raio (padrão 40 m), escolhe o de maior **valor esperado**
+(unidades do recurso pedido que o nó rende × esforço em golpes × distância), equipa a **ferramenta
+adequada** (machado para madeira, picareta para pedra — escolhida pelas resistências do nó), bate
+até destruir, **pega os drops** e segue para o próximo nó, repetindo até a **quantidade** pedida ou
+até não haver mais nó no raio.
 
+- **Madeira sai de árvore**: o companheiro derruba a árvore (`TreeBase`), depois parte as **toras**
+  que caem (`TreeLog`) — é nelas que a madeira está (uma Beech1 rende ~20 Wood). O rendimento é
+  estimado seguindo a cascata `m_logPrefab` → `m_subLogPrefab`, então a árvore ganha dos galhos
+  (`Pickable`) e dos itens avulsos no chão; esses continuam valendo como fonte quando não há árvore
+  por perto.
 - Recursos: qualquer **item** do jogo que caia de árvore, tora, pedra, rocha, planta ou entulho
-  (`m_dropWhenDestroyed`/`m_dropItems`/`m_itemPrefab`). Vale o nome do prefab (`Wood`, `Stone`,
-  `Raspberry`, `Resin`…), apelidos em português (`madeira`, `pedra`, `amora`) e o **nome localizado**
-  do item. `modia_gather` sem argumento mostra a ajuda.
+  (`m_dropWhenDestroyed`/`m_dropItems`/`m_itemPrefab`/`DropOnDestroyed`). Vale o nome do prefab
+  (`Wood`, `Stone`, `Raspberry`, `Resin`…), apelidos em português (`madeira`, `pedra`, `amora`) e o
+  **nome localizado** do item. `modia_gather` sem argumento mostra a ajuda.
 - Quantidade: `modia_gather wood 20` para parar em 20; sem quantidade ele coleta enquanto achar nó.
 - Combate x coleta: nos modos **Defensive/Aggressive** um inimigo hostil **pausa** a coleta (a
   tarefa continua e é retomada quando o combate acaba); no **Passive** ele ignora inimigos e
@@ -56,6 +62,9 @@ próximo nó, repetindo até a **quantidade** pedida ou até não haver mais nó
 - Segurança: nunca ataca **construções do jogador** (peças/`WearNTear`) nem **contêineres**, não
   coleta nós submersos nem nós encostados em construções, e larga o nó se o jogador se afastar.
 - Recursos que só caem de **criaturas** (couro, tripas…) não estão no escopo desta fase.
+- Com `Geral/LogDetalhado = true` cada varredura imprime um diagnóstico (nós por categoria,
+  candidatos que casam com o recurso, motivos de descarte e o alvo escolhido com camada,
+  rendimento estimado, golpes e score) — é a ferramenta para investigar "por que ele não pegou X".
 
 ### Configuração (seções do `.cfg`)
 

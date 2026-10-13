@@ -30,6 +30,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.3b | Corpo base viking (clone do `Player`) + aparência padrão | ✅ |
 | 2.4a | Combate: Passive/Defensive/Aggressive, seleção de alvo, revidar | ✅ |
 | 2.4b | Coleta de recursos (madeira/pedra/itens) | ✅ |
+| 2.4b-fix | Coleta de madeira: derrubar árvores (seguir a cascata tora→toras menores) + pontuação por rendimento real | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -53,3 +54,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 - **Fase 1** — 2 DLLs do Thrall decompilados; 4 documentos de análise em `docs/re/`.
 - **Fase 2.0–2.4b** — companheiro viking com spawn/dismiss, follow, inventário/equip, aparência,
   combate e coleta de recursos (`modia_gather`/`modia_stop`, tecla F4).
+- **Fase 2.4b (fix 0.2.7)** — coleta de madeira passou a **derrubar árvores**: a classificação
+  segue a cadeia `TreeBase.m_logPrefab` → `TreeLog.m_subLogPrefab` (a madeira está nas toras, não na
+  árvore) e a pontuação virou valor × esforço × distância, com diagnóstico por categoria em
+  `Geral/LogDetalhado`.
