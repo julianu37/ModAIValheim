@@ -1,3 +1,4 @@
+using System;
 using Jotunn.Managers;
 using UnityEngine;
 
@@ -186,6 +187,33 @@ namespace ModAIValheim.Companion
             {
                 character.m_faction = Character.Faction.Players;
             }
+
+            ClearVanillaDefaultItems(prefab);
+        }
+
+        /// <summary>
+        /// Zera o equipamento que o <c>Humanoid</c> do clone distribuiria sozinho
+        /// (<c>GiveDefaultItems</c>, chamado no <c>Start</c> de NPCs).
+        ///
+        /// O companheiro nasce "pelado" de propósito: quem define a aparência é o nosso loadout
+        /// (<see cref="CompanionInventory"/>), e assim não há gear aleatório do Draugr no
+        /// inventário nem no <c>VisEquipment</c>. Os arrays viram vazios (nunca null) porque o
+        /// código vanilla itera e lê <c>.Length</c> sem checar null.
+        /// </summary>
+        private static void ClearVanillaDefaultItems(GameObject prefab)
+        {
+            Humanoid humanoid = prefab.GetComponent<Humanoid>();
+            if (humanoid == null)
+            {
+                return;
+            }
+
+            humanoid.m_defaultItems = Array.Empty<GameObject>();
+            humanoid.m_randomWeapon = Array.Empty<GameObject>();
+            humanoid.m_randomArmor = Array.Empty<GameObject>();
+            humanoid.m_randomShield = Array.Empty<GameObject>();
+            humanoid.m_randomSets = Array.Empty<Humanoid.ItemSet>();
+            humanoid.m_randomItems = Array.Empty<Humanoid.RandomItem>();
         }
 
         private static void DestroyIfPresent<T>(GameObject prefab) where T : Component

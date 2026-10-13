@@ -23,6 +23,12 @@ namespace ModAIValheim.Companion
 
         private static GameObject _companion;
 
+        /// <summary>
+        /// Companheiro ativo no mundo (null se não houver). Usado pelos comandos de console e
+        /// pelas APIs de inventário/equipamento.
+        /// </summary>
+        internal static CompanionAI ActiveCompanion => GetCompanion();
+
         internal static void Configure(ConfigEntry<KeyCode> spawnKey, ConfigEntry<KeyCode> dismissKey)
         {
             _spawnKey = spawnKey;
@@ -70,6 +76,7 @@ namespace ModAIValheim.Companion
         internal static void Shutdown()
         {
             _companion = null;
+            CompanionInventory.Shutdown();
         }
 
         private static void Spawn()
@@ -146,6 +153,9 @@ namespace ModAIValheim.Companion
 
             ai.EnsureConfigured();
             ai.SetFollowTarget(player.gameObject);
+
+            // Loadout padrão (arma + armaduras) da config; tolerante a prefab inexistente.
+            CompanionInventory.ApplyDefaultLoadout(ai);
 
             Character character = companion.GetComponent<Character>();
             if (character != null)
