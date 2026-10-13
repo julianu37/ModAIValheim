@@ -33,6 +33,10 @@ dependências. Leia este arquivo antes de agir.
 - net472 sem Developer Pack: pacote NuGet `Microsoft.NETFramework.ReferenceAssemblies`.
 - Referências (`assembly_valheim`, `UnityEngine*`, `BepInEx`, `0Harmony`, `Jotunn`) via `HintPath`
   com `Private=false` (não copiar para a saída).
+- **Publicizer:** `BepInEx.AssemblyPublicizer.MSBuild` 0.4.3 publiciza as assemblies do jogo em
+  compile-time (o runtime é liberado pelo `IgnoresAccessChecksTo` gerado). Habilite com
+  `<Publicize>true</Publicize>` dentro do `<Reference>` — a forma `<Publicize Include="..."/>`
+  está quebrada neste MSBuild.
 - **Build:** `dotnet build src/ModAIValheim/ModAIValheim.csproj -c Debug`. O alvo de pós-build
   copia a DLL para `BepInEx\plugins` automaticamente.
 - **Teste:** iniciar o jogo e conferir `BepInEx\LogOutput.log` (deve listar `ModIA Companion`).
@@ -45,6 +49,13 @@ dependências. Leia este arquivo antes de agir.
   (use config ou variável de ambiente).
 - Patches Harmony mínimos e defensivos (guardas de `null`, sem assumir estado do jogo).
 - Acesso a membros privados do jogo via assemblies **publicized**, não por reflexão frágil.
+
+## Docs de reverse engineering (Fase 1)
+
+- `docs/re/thrall-features.md` — o que o Thrall fazia, por área (spawn, follow, patrol, harvesting, combate, voz, TTS, UI).
+- `docs/re/game-api-usage.md` — APIs do jogo usadas pelo Thrall e status na 1.0.17.
+- `docs/re/api-diff.md` — **o que quebrou no Valheim 1.0**; leia a seção A antes de portar código.
+- `docs/re/backend-contract.md` — endpoints do "cérebro" (LLM/STT/TTS) e o que reimplementar.
 
 ## Skills (carregue antes de escrever/revisar código)
 

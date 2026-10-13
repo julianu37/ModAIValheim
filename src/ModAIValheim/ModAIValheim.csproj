@@ -26,6 +26,8 @@
   <ItemGroup>
     <!-- Permite compilar net472 sem o Developer Pack instalado. -->
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="All" />
+    <!-- Publiciza (private/protected -> public) as assemblies do jogo na compilacao. -->
+    <PackageReference Include="BepInEx.AssemblyPublicizer.MSBuild" Version="0.4.3" PrivateAssets="All" />
   </ItemGroup>
 
   <ItemGroup>
@@ -45,10 +47,11 @@
       <Private>false</Private>
     </Reference>
 
-    <!-- Jogo -->
+    <!-- Jogo (Publicize="true": private/protected -> public em tempo de compilacao) -->
     <Reference Include="assembly_valheim">
       <HintPath>$(MANAGED_PATH)\assembly_valheim.dll</HintPath>
       <Private>false</Private>
+      <Publicize>true</Publicize>
     </Reference>
 
     <!-- Unity -->
