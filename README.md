@@ -122,6 +122,7 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
   - [`game-api-usage.md`](docs/re/game-api-usage.md) — APIs do jogo usadas e status na 1.0.17.
   - [`api-diff.md`](docs/re/api-diff.md) — o que quebrou no Valheim 1.0.
   - [`backend-contract.md`](docs/re/backend-contract.md) — endpoints do "cérebro" (LLM/STT/TTS).
+  - [`harvesting-notes.md`](docs/re/harvesting-notes.md) — de onde vem a madeira de uma árvore e a fórmula de coleta.
 - [`AGENTS.md`](AGENTS.md) — como a equipe de agentes trabalha neste repositório.
 
 ---
