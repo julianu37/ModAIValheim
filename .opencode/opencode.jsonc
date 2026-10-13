@@ -9,5 +9,28 @@
       "repository": "Valheim-Modding/Jotunn",
       "description": "Fonte oficial do Jotunn (Managers, prefabs, itens, GUI, localização). Use para confirmar APIs do framework."
     }
+  },
+  "mcp": {
+    "servers": {
+      "alvin": {
+        "type": "local",
+        "command": [
+          "C:\\Users\\revenda33\\AppData\\Local\\Programs\\Python\\Python312\\Scripts\\mcp-proxy.exe",
+          "http://localhost:5050/sse"
+        ]
+      },
+      "github": {
+        "type": "remote",
+        "url": "https://api.githubcopilot.com/mcp/"
+      },
+      "context7": {
+        "type": "remote",
+        "url": "https://mcp.context7.com/mcp"
+      },
+      "learn": {
+        "type": "remote",
+        "url": "https://learn.microsoft.com/api/mcp"
+      }
+    }
   }
 }

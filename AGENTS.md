@@ -50,6 +50,17 @@ dependências. Leia este arquivo antes de agir.
 - `valheim-ai-backend` — contrato do "cérebro" (LLM/STT/TTS) e serviço híbrido.
 - `valheim-assets` — AssetBundles e SoftReferenceableAssets (Unity 6).
 
+## MCP servers disponíveis
+
+- **`alvin`** — MCP do **Visual Studio** (build, debug, Output, terminal, testes). Use para
+  compilar/rodar/testar a solução pela própria IDE. Requer o VS aberto.
+- **`context7`** — documentação atualizada de bibliotecas (`resolve-library-id` → `query-docs`).
+- **`learn`** — Microsoft Learn (`microsoft_docs_search`, `microsoft_code_sample_search`,
+  `microsoft_docs_fetch`) para .NET/C#/Azure.
+- **`github`** — gestão de repositório/PRs/issues (requer autenticação via `/mcps`).
+- A ponte do `alvin` (SSE→stdio) é feita por `mcp-proxy` (Python), configurada em
+  `.opencode/opencode.jsonc`.
+
 ## Regras de trabalho
 
 1. **Carregue a skill** da dependência envolvida antes de codar ou revisar.
