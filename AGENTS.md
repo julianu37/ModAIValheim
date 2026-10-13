@@ -32,7 +32,8 @@ dependências. Leia este arquivo antes de agir.
   **gitignored**; o `.csproj` tem defaults para o caminho padrão da Steam.
 - net472 sem Developer Pack: pacote NuGet `Microsoft.NETFramework.ReferenceAssemblies`.
 - Referências (`assembly_valheim`, `UnityEngine*`, `BepInEx`, `0Harmony`, `Jotunn`) via `HintPath`
-  com `Private=false` (não copiar para a saída).
+  com `Private=false` (não copiar para a saída). `assembly_utils` (ZInput/Utils) e
+  `assembly_guiutils` (Localization) também são referenciados do mesmo jeito.
 - **Publicizer:** `BepInEx.AssemblyPublicizer.MSBuild` 0.4.3 publiciza as assemblies do jogo em
   compile-time (o runtime é liberado pelo `IgnoresAccessChecksTo` gerado). Habilite com
   `<Publicize>true</Publicize>` dentro do `<Reference>` — a forma `<Publicize Include="..."/>`

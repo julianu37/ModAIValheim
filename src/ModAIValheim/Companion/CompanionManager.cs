@@ -81,12 +81,13 @@ namespace ModAIValheim.Companion
             }
         }
 
-        /// <summary>Solta as referências estáticas (unload do plugin / fim do mundo).</summary>
+        /// <summary>Solta o estado estático (unload do plugin / fim do mundo).</summary>
         internal static void Shutdown()
         {
             _companion = null;
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
+            CompanionHarvest.Shutdown();
         }
 
         private static void Spawn()
@@ -211,6 +212,9 @@ namespace ModAIValheim.Companion
             netView.Destroy();
             _companion = null;
 
+            // Coleta em andamento não faz sentido sem companheiro.
+            CompanionHarvest.Stop("companheiro dispensado");
+
             Plugin.Log.LogInfo("[ModIA] Companheiro dispensado.");
             ShowMessage("Companheiro dispensado.");
         }
@@ -296,6 +300,7 @@ namespace ModAIValheim.Companion
         {
             Plugin.Log.LogInfo("[ModIA] Companheiro morreu.");
             _companion = null;
+            CompanionHarvest.Stop("companheiro morreu");
             ShowMessage("Seu companheiro morreu!");
         }
 

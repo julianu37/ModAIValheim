@@ -15,6 +15,7 @@ namespace ModAIValheim
     /// Fase 2.3b: o companheiro usa o corpo do jogador ('Player'), então armadura de
     /// peito/pernas renderiza e o NPC parece um viking.
     /// Fase 2.4a: modo de combate (Passive/Defensive/Aggressive) com seleção de alvo e revide.
+    /// Fase 2.4b: coleta de recursos (madeira/pedra/itens) por comando e tecla.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -22,7 +23,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.5";
+        public const string PluginVersion = "0.2.6";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -45,6 +46,16 @@ namespace ModAIValheim
         private ConfigEntry<float> _combatLeashDistance;
         private ConfigEntry<bool> _attackNeutralAnimals;
         private ConfigEntry<float> _combatScanInterval;
+
+        // Coleta de recursos (Fase 2.4b).
+        private ConfigEntry<KeyCode> _harvestKey;
+        private ConfigEntry<string> _harvestDefaultResource;
+        private ConfigEntry<int> _harvestDefaultAmount;
+        private ConfigEntry<float> _harvestScanRadius;
+        private ConfigEntry<float> _harvestScanInterval;
+        private ConfigEntry<bool> _harvestPauseOnCombat;
+        private ConfigEntry<bool> _harvestCollectDrops;
+        private ConfigEntry<string> _harvestLayers;
 
         private Harmony _harmony;
 
@@ -181,6 +192,66 @@ namespace ModAIValheim
                 "Intervalo em segundos entre as varreduras de alvo (0.1 a 2.0). " +
                 "A varredura nunca roda por frame.");
 
+            // Coleta de recursos (Fase 2.4b).
+            _harvestKey = Config.Bind(
+                "Teclas",
+                "HarvestKey",
+                KeyCode.F4,
+                "Tecla que inicia (e para) a coleta do recurso padrao. Padrao F4 " +
+                "(F1 = spawn, H = dismiss e F3 = modo de combate ja estao em uso).");
+
+            _harvestDefaultResource = Config.Bind(
+                "Coleta",
+                "RecursoPadrao",
+                "Wood",
+                "Recurso coletado pela tecla de coleta (modia_gather aceita qualquer um). " +
+                "Aceita o nome do item (Wood, Stone, Raspberry, Resin...) ou apelidos em portugues " +
+                "(madeira, pedra...).");
+
+            _harvestDefaultAmount = Config.Bind(
+                "Coleta",
+                "QuantidadePadrao",
+                0,
+                "Quantidade alvo da coleta iniciada PELA TECLA (0 = sem limite: coleta enquanto " +
+                "houver no no raio). O comando modia_gather sem quantidade tambem coleta sem limite.");
+
+            _harvestScanRadius = Config.Bind(
+                "Coleta",
+                "RaioVarredura",
+                40f,
+                "Raio em metros (a partir do companheiro) onde ele procura nos de coleta. " +
+                "Nos que a ferramenta disponivel nao consegue quebrar ficam no fim da fila.");
+
+            _harvestScanInterval = Config.Bind(
+                "Coleta",
+                "IntervaloVarredura",
+                0.5f,
+                "Intervalo em segundos entre as varreduras de no de coleta (0.2 a 3.0). " +
+                "A varredura usa buffer pre-alocado e nunca roda por frame.");
+
+            _harvestPauseOnCombat = Config.Bind(
+                "Coleta",
+                "PausarEmCombate",
+                true,
+                "Se true (padrao), nos modos Defensive/Aggressive a coleta e PAUSADA enquanto " +
+                "houver alvo hostil e retomada depois do combate. No modo Passive a coleta nunca " +
+                "e pausada. Se false, o companheiro ignora os inimigos e continua coletando.");
+
+            _harvestCollectDrops = Config.Bind(
+                "Coleta",
+                "CatarDrops",
+                true,
+                "Se true, o companheiro vai atras dos itens caidos (ItemDrop) do recurso pedido - " +
+                "e o que conta a quantidade coletada. Desligado, ele so quebra arvores/rochas e " +
+                "colhe plantas (a quantidade alvo nao fecha).");
+
+            _harvestLayers = Config.Bind(
+                "Coleta",
+                "Camadas",
+                CompanionHarvest.DefaultLayerNames,
+                "Camadas varridas na busca de nos (separadas por virgula). Ajuste se algum " +
+                "recurso nao for encontrado (ex.: inclua 'terrain' ou 'vehicle').");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -218,9 +289,21 @@ namespace ModAIValheim
             CompanionInventory.Configure(_equipLoadoutOnSpawn, _weaponPrefab, _armorPrefabs);
             CompanionAppearance.Configure(
                 _appearanceEnabled, _hairPrefab, _beardPrefab, _skinColor, _hairColor);
+
+            // Coleta de recursos: recurso/quantidade padrao, tecla, raio e convivencia com o
+            // combate (Fase 2.4b).
+            CompanionHarvest.Configure(
+                _harvestKey,
+                _harvestDefaultResource,
+                _harvestDefaultAmount,
+                _harvestScanRadius,
+                _harvestScanInterval,
+                _harvestPauseOnCombat,
+                _harvestCollectDrops,
+                _harvestLayers);
+
             CompanionCommands.Register();
             ApplyHarmonyPatches();
-
             if (_logDetalhado.Value)
             {
                 Log.LogWarning("Log detalhado ligado - ModIA pronto para o desenvolvimento.");
@@ -245,11 +328,14 @@ namespace ModAIValheim
             }
         }
 
-        /// <summary>Teclas de spawn/dismiss e de modo de combate (o Tick sai rápido fora do mundo).</summary>
+        /// <summary>
+        /// Teclas de spawn/dismiss, de modo de combate e de coleta (o Tick sai rápido fora do mundo).
+        /// </summary>
         private void Update()
         {
             CompanionManager.Tick();
             CompanionCombat.Tick();
+            CompanionHarvest.Tick();
         }
 
         private void OnDestroy()

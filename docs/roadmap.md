@@ -29,7 +29,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.3 | Inventário/equip + aparência hash-based do `VisEquipment` | ✅ |
 | 2.3b | Corpo base viking (clone do `Player`) + aparência padrão | ✅ |
 | 2.4a | Combate: Passive/Defensive/Aggressive, seleção de alvo, revidar | ✅ |
-| 2.4b | Coleta de recursos (madeira/pedra/itens) | ⏳ |
+| 2.4b | Coleta de recursos (madeira/pedra/itens) | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -51,4 +51,5 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 
 - **Fase 0** — BepInEx 5.4.23.5 + Jotunn 2.30.2 instalados; plugin carregando no Valheim 1.0.17.
 - **Fase 1** — 2 DLLs do Thrall decompilados; 4 documentos de análise em `docs/re/`.
-- **Fase 2.0–2.4a** — companheiro viking com spawn/dismiss, follow, inventário/equip, aparência e combate.
+- **Fase 2.0–2.4b** — companheiro viking com spawn/dismiss, follow, inventário/equip, aparência,
+  combate e coleta de recursos (`modia_gather`/`modia_stop`, tecla F4).

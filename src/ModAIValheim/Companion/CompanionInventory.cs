@@ -246,6 +246,196 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
+        // Ferramenta de coleta (Fase 2.4b)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Maior <c>m_toolTier</c> entre as ferramentas disponíveis no inventário do companheiro.
+        /// O tier é o que o jogo cobra para arranhar o nó (<c>HitData.CheckToolTier</c>): sem ele o
+        /// golpe não faz dano nenhum (o jogo mostra "duro demais").
+        /// </summary>
+        internal static int GetBestAvailableToolTier(CompanionAI companion)
+        {
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return 0;
+            }
+
+            int best = 0;
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (IsHarvestTool(items[i]) && items[i].m_shared.m_toolTier > best)
+                {
+                    best = items[i].m_shared.m_toolTier;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Equipa a melhor ferramenta do inventário para um nó com estas resistências
+        /// (<paramref name="modifiers"/>): machado para madeira (dano de <i>chop</i>), picareta para
+        /// pedra (<i>pickaxe</i>), e assim por diante — a mesma ideia do
+        /// <c>GetBestHarvestingTool</c>/<c>CalculateWeaponEffectiveness</c> do Thrall, usando a
+        /// tabela de modificadores do próprio jogo.
+        ///
+        /// <para>
+        /// Ferramentas com tier abaixo do mínimo do nó levam penalidade forte na pontuação (só são
+        /// escolhidas se não houver nada melhor), e armas sem golpe corpo-a-corpo (arcos, cajados)
+        /// são descartadas — elas não quebram nó nenhum.
+        /// </para>
+        /// </summary>
+        internal static bool TryEquipBestHarvestTool(
+            CompanionAI companion,
+            HitData.DamageModifiers modifiers,
+            int minToolTier,
+            string resourceName,
+            out string chosenTool)
+        {
+            chosenTool = null;
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            ItemDrop.ItemData current = humanoid.GetCurrentWeapon();
+            ItemDrop.ItemData best = null;
+            float bestScore = -1f;
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (!IsHarvestTool(item))
+                {
+                    continue;
+                }
+
+                float score = CalculateToolEffectiveness(item, modifiers);
+                if (score <= 0f)
+                {
+                    continue;
+                }
+
+                if (item.m_shared.m_toolTier < minToolTier)
+                {
+                    score *= 0.05f;
+                }
+
+                // Já equipada: leva um empurrãozinho para não ficar trocando de ferramenta à toa.
+                if (item == current)
+                {
+                    score *= 1.1f;
+                }
+
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = item;
+                }
+            }
+
+            if (best == null)
+            {
+                Plugin.Log.LogWarning(
+                    $"[ModIA] Companheiro não tem ferramenta de golpe para '{resourceName}'; " +
+                    "a coleta não vai render (equipe um machado/picareta: modia_equip AxeStone).");
+                return false;
+            }
+
+            if (best == current)
+            {
+                chosenTool = Utils.GetPrefabName(best.m_dropPrefab);
+                return true;
+            }
+
+            if (best.m_dropPrefab == null)
+            {
+                return false;
+            }
+
+            chosenTool = Utils.GetPrefabName(best.m_dropPrefab);
+            if (EquipWeapon(companion, chosenTool))
+            {
+                return true;
+            }
+
+            chosenTool = null;
+            return false;
+        }
+
+        /// <summary>
+        /// Ferramenta capaz de bater em recurso: equipável, com ataque primário corpo-a-corpo (sem
+        /// projétil) e com dano. Cuidado: <c>IsWeapon()</c> do jogo devolve <c>false</c> para
+        /// <c>ItemType.Tool</c> — é justamente onde moram as picaretas.
+        /// </summary>
+        private static bool IsHarvestTool(ItemDrop.ItemData item)
+        {
+            if (item == null || item.m_shared == null || !item.IsEquipable() || !item.HavePrimaryAttack())
+            {
+                return false;
+            }
+
+            Attack attack = item.m_shared.m_attack;
+            if (attack == null || attack.m_attackProjectile != null || attack.m_attackType == Attack.AttackType.Projectile)
+            {
+                return false;
+            }
+
+            HitData.DamageTypes damage = item.m_shared.m_damages;
+            return damage.m_blunt > 0f || damage.m_slash > 0f || damage.m_pierce > 0f ||
+                   damage.m_chop > 0f || damage.m_pickaxe > 0f;
+        }
+
+        /// <summary>
+        /// Dano efetivo da ferramenta contra as resistências do nó (tabela de
+        /// <c>HitData.DamageModifiers</c> → multiplicador, a mesma do <c>ApplyModifier</c> do jogo).
+        /// </summary>
+        private static float CalculateToolEffectiveness(ItemDrop.ItemData tool, HitData.DamageModifiers modifiers)
+        {
+            HitData.DamageTypes damage = tool.m_shared.m_damages;
+
+            float total = 0f;
+            total += damage.m_blunt * ModifierValue(modifiers.m_blunt);
+            total += damage.m_slash * ModifierValue(modifiers.m_slash);
+            total += damage.m_pierce * ModifierValue(modifiers.m_pierce);
+            total += damage.m_chop * ModifierValue(modifiers.m_chop);
+            total += damage.m_pickaxe * ModifierValue(modifiers.m_pickaxe);
+            return total;
+        }
+
+        private static float ModifierValue(HitData.DamageModifier modifier)
+        {
+            switch (modifier)
+            {
+                case HitData.DamageModifier.SlightlyResistant:
+                    return 0.75f;
+                case HitData.DamageModifier.Resistant:
+                    return 0.5f;
+                case HitData.DamageModifier.VeryResistant:
+                    return 0.25f;
+                case HitData.DamageModifier.SlightlyWeak:
+                    return 1.25f;
+                case HitData.DamageModifier.Weak:
+                    return 1.5f;
+                case HitData.DamageModifier.VeryWeak:
+                    return 2f;
+                case HitData.DamageModifier.Immune:
+                case HitData.DamageModifier.Ignore:
+                    return 0f;
+                default:
+                    return 1f;
+            }
+        }
+
+        // ---------------------------------------------------------------------
         // Inspeção
         // ---------------------------------------------------------------------
 

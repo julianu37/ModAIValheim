@@ -60,6 +60,12 @@
       <Private>false</Private>
     </Reference>
 
+    <!-- Localization (nome localizado dos itens, usado para resolver o recurso pedido). -->
+    <Reference Include="assembly_guiutils">
+      <HintPath>$(MANAGED_PATH)\assembly_guiutils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
     <!-- Unity -->
     <Reference Include="UnityEngine">
       <HintPath>$(MANAGED_PATH)\UnityEngine.dll</HintPath>

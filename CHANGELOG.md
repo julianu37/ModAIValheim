@@ -3,6 +3,28 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.2.6] — 2026-10-13
+
+### Adicionado
+- **Coleta de recursos** do companheiro (Fase 2.4b, `CompanionHarvest` + `CompanionHarvestScanner`):
+  busca de nós por varredura física (`OverlapSphereNonAlloc`, buffer reaproveitado), pontuação de
+  "facilidade" (quantidade × vida × distância), escolha da ferramenta pelas resistências do nó
+  (machado/picareta), golpe com a hitbox do ataque equipado, colheita de `Pickable` e coleta dos
+  `ItemDrop` caídos.
+- Comandos de console **`modia_gather <recurso> [qtd]`** e **`modia_stop`**; tecla **F4**
+  (config `Teclas/HarvestKey`) inicia/para a coleta do recurso padrão.
+- Config `[Coleta]`: `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
+  `PausarEmCombate`, `CatarDrops`, `Camadas`.
+- `CompanionInventory`: `GetBestAvailableToolTier` e `TryEquipBestHarvestTool` (ferramenta ideal por
+  tabela de modificadores de dano).
+- Referência a `assembly_guiutils` no `.csproj` (nome localizado dos itens).
+
+### Notas
+- Combate x coleta: em Defensive/Aggressive um alvo hostil **pausa** a coleta (retomada depois); em
+  Passive a coleta continua.
+- Nunca ataca construções do jogador nem coleta dentro d'água/perto de base; nós impossíveis
+  (ferramenta fraca, parede no caminho) são vetados por 90 s.
+
 ## [0.2.5] — 2026-10-13
 
 ### Alterado

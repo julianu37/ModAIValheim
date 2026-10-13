@@ -38,10 +38,12 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new EquipCommand());
             manager.AddConsoleCommand(new DropCommand());
             manager.AddConsoleCommand(new ModeCommand());
+            manager.AddConsoleCommand(new GatherCommand());
+            manager.AddConsoleCommand(new StopCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
-                "modia_mode.");
+                "modia_mode, modia_gather, modia_stop.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -288,6 +290,106 @@ namespace ModAIValheim.Companion
 
                 CompanionCombat.SetMode(mode, "comando modia_mode");
                 Report(context, $"[ModIA] Modo de combate do companheiro: {mode}.");
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+        // ---------------------------------------------------------------------
+        // modia_gather <recurso> [qtd]
+        // ---------------------------------------------------------------------
+
+        private sealed class GatherCommand : ConsoleCommand
+        {
+            public override string Name => "modia_gather";
+
+            public override string Help =>
+                "Faz o companheiro coletar um recurso. Uso: modia_gather <recurso> [qtd]. " +
+                "Ex.: modia_gather wood 20 | modia_gather pedra | modia_gather raspberry 30. " +
+                "Sem a quantidade ele coleta enquanto houver nó no raio configurado. " +
+                "Aceita o nome do item (Wood, Stone, Raspberry...) ou apelidos em português.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (args == null || args.Length == 0)
+                {
+                    List<string> help = CompanionHarvest.GetHelp();
+                    for (int i = 0; i < help.Count; i++)
+                    {
+                        Report(context, help[i]);
+                    }
+
+                    return;
+                }
+
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                int amount = 0;
+                if (args.Length >= 2 && !int.TryParse(args[1], out amount))
+                {
+                    Report(context, $"[ModIA] Quantidade inválida: '{args[1]}'.");
+                    return;
+                }
+
+                if (amount < 0)
+                {
+                    Report(context, "[ModIA] A quantidade não pode ser negativa.");
+                    return;
+                }
+
+                CompanionHarvest.Stop("novo comando de coleta");
+
+                if (CompanionHarvest.Start(Current, args[0], amount, "comando modia_gather", out string error))
+                {
+                    string limit = amount > 0 ? $"{amount}x" : "sem limite";
+                    Report(context, $"[ModIA] Coleta iniciada: '{CompanionHarvest.ResourceName}' ({limit}).");
+                    return;
+                }
+
+                Report(context, error);
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_stop
+        // ---------------------------------------------------------------------
+
+        private sealed class StopCommand : ConsoleCommand
+        {
+            public override string Name => "modia_stop";
+
+            public override string Help =>
+                "Para a coleta de recursos do companheiro (ele volta a seguir o jogador) e " +
+                "larga qualquer alvo de combate.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                bool wasHarvesting = CompanionHarvest.IsActive;
+                int collected = CompanionHarvest.Collected;
+
+                CompanionHarvest.Stop("comando modia_stop");
+
+                if (Current != null)
+                {
+                    Current.ClearCombatTarget();
+                }
+
+                Report(
+                    context,
+                    wasHarvesting
+                        ? $"[ModIA] Coleta parada ({collected} item(ns) coletado(s)); " +
+                          "o companheiro voltou a seguir o jogador."
+                        : "[ModIA] O companheiro não estava coletando; alvo de combate limpo.");
             }
 
             public override void Run(string[] args)
