@@ -41,6 +41,21 @@ namespace ModAIValheim.Companion
             }
         }
 
+        /// <summary>
+        /// True quando o input do mod deve ser ignorado: sem personagem no mundo, com menu/console
+        /// abertos ou com o chat em foco (digitar "f2" no chat não pode ciclar o modo de combate).
+        /// </summary>
+        internal static bool InputBlocked()
+        {
+            if (Player.m_localPlayer == null || Menu.IsVisible() || Console.IsVisible())
+            {
+                return true;
+            }
+
+            Chat chat = Chat.instance;
+            return chat != null && chat.HasFocus();
+        }
+
         /// <summary>Chamado a cada frame pelo <see cref="Plugin"/>; sai rápido fora do mundo.</summary>
         internal static void Tick()
         {
@@ -50,13 +65,7 @@ namespace ModAIValheim.Companion
             }
 
             // Só faz sentido com um personagem vivo no mundo e sem UI de texto capturando input.
-            if (Player.m_localPlayer == null || Menu.IsVisible() || Console.IsVisible())
-            {
-                return;
-            }
-
-            Chat chat = Chat.instance;
-            if (chat != null && chat.HasFocus())
+            if (InputBlocked())
             {
                 return;
             }
@@ -77,6 +86,7 @@ namespace ModAIValheim.Companion
         {
             _companion = null;
             CompanionInventory.Shutdown();
+            CompanionCombat.Shutdown();
         }
 
         private static void Spawn()

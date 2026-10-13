@@ -7,11 +7,13 @@ namespace ModAIValheim.Companion
     /// <summary>
     /// Comandos de console do companheiro (via <see cref="CommandManager"/> do Jotunn).
     ///
-    /// São ferramentas de teste in-game para o inventário/equipamento (Fase 2.3):
+    /// São ferramentas de teste in-game para o inventário/equipamento (Fase 2.3) e para o modo de
+    /// combate (Fase 2.4a):
     /// <list type="bullet">
     ///   <item><description><c>modia_inv</c> — inventário + itens equipados do companheiro.</description></item>
     ///   <item><description><c>modia_equip &lt;prefab&gt; [slot]</c> — equipa arma ou armadura.</description></item>
     ///   <item><description><c>modia_drop &lt;prefab&gt; [qtd]</c> — dropa item do inventário do companheiro.</description></item>
+    ///   <item><description><c>modia_mode [passive|defensive|aggressive]</c> — mostra/define o modo de combate.</description></item>
     /// </list>
     ///
     /// O <see cref="CommandManager"/> só injeta os comandos no <c>Console.Awake</c>, então basta
@@ -35,9 +37,11 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new InventoryCommand());
             manager.AddConsoleCommand(new EquipCommand());
             manager.AddConsoleCommand(new DropCommand());
+            manager.AddConsoleCommand(new ModeCommand());
 
             Plugin.Log.LogInfo(
-                "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop.");
+                "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
+                "modia_mode.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -241,6 +245,49 @@ namespace ModAIValheim.Companion
                 }
 
                 Report(context, $"[ModIA] Nada foi dropado ('{args[0]}' não está no inventário?).");
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_mode [passive|defensive|aggressive]
+        // ---------------------------------------------------------------------
+
+        private sealed class ModeCommand : ConsoleCommand
+        {
+            public override string Name => "modia_mode";
+
+            public override string Help =>
+                "Mostra ou define o modo de combate do companheiro. " +
+                "Uso: modia_mode [passive|defensive|aggressive]. " +
+                "Sem argumento mostra o modo atual (também trocável pela tecla de combate, F2).";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (args == null || args.Length == 0)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Modo de combate atual: {CompanionCombat.Mode} " +
+                        $"(use modia_mode passive|defensive|aggressive).");
+                    return;
+                }
+
+                if (!CompanionModeExtensions.TryParse(args[0], out CompanionMode mode))
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Modo '{args[0]}' desconhecido. " +
+                        "Use passive, defensive ou aggressive.");
+                    return;
+                }
+
+                CompanionCombat.SetMode(mode, "comando modia_mode");
+                Report(context, $"[ModIA] Modo de combate do companheiro: {mode}.");
             }
 
             public override void Run(string[] args)

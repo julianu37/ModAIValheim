@@ -3,6 +3,7 @@ using System.Linq;
 using BepInEx;
 using BepInEx.Configuration;
 using BepInEx.Logging;
+using HarmonyLib;
 using ModAIValheim.Companion;
 using UnityEngine;
 
@@ -13,6 +14,7 @@ namespace ModAIValheim
     /// Fase 2.1: invoca/dispensa o companheiro NPC (que segue o jogador) por tecla.
     /// Fase 2.3b: o companheiro usa o corpo do jogador ('Player'), então armadura de
     /// peito/pernas renderiza e o NPC parece um viking.
+    /// Fase 2.4a: modo de combate (Passive/Defensive/Aggressive) com seleção de alvo e revide.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -20,7 +22,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.3";
+        public const string PluginVersion = "0.2.4";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -36,6 +38,15 @@ namespace ModAIValheim
         private ConfigEntry<string> _beardPrefab;
         private ConfigEntry<string> _skinColor;
         private ConfigEntry<string> _hairColor;
+        private ConfigEntry<CompanionMode> _combatMode;
+        private ConfigEntry<KeyCode> _combatModeKey;
+        private ConfigEntry<float> _aggressiveRadius;
+        private ConfigEntry<float> _defensiveRadius;
+        private ConfigEntry<float> _combatLeashDistance;
+        private ConfigEntry<bool> _attackNeutralAnimals;
+        private ConfigEntry<float> _combatScanInterval;
+
+        private Harmony _harmony;
 
         private void Awake()
         {
@@ -117,6 +128,59 @@ namespace ModAIValheim
                 "0.62;0.45;0.30",
                 "Cor do cabelo/barba em r;g;b de 0 a 1, ponto decimal (ex.: 0.62;0.45;0.30).");
 
+            // Combate (Fase 2.4a).
+            _combatMode = Config.Bind(
+                "Combate",
+                "Modo",
+                CompanionMode.Defensive,
+                "Modo de combate do companheiro. " +
+                "Passive = nunca ataca nem revida; " +
+                "Defensive = revida quem agredir o companheiro ou o jogador dono e ataca quem estiver " +
+                "cacando um dos dois; " +
+                "Aggressive = ataca qualquer criatura hostil dentro do RaioAgressivo. " +
+                "Cicla em jogo pela tecla de combate; tambem aceita modia_mode.");
+
+            _combatModeKey = Config.Bind(
+                "Teclas",
+                "CombatModeKey",
+                KeyCode.F2,
+                "Tecla que cicla o modo de combate: Passive -> Defensive -> Aggressive.");
+
+            _aggressiveRadius = Config.Bind(
+                "Combate",
+                "RaioAgressivo",
+                30f,
+                "Raio em metros (a partir do companheiro) em que o modo Aggressive procura a " +
+                "criatura hostil mais proxima.");
+
+            _defensiveRadius = Config.Bind(
+                "Combate",
+                "RaioDefensivo",
+                25f,
+                "Raio em metros (a partir do companheiro) em que o modo Defensive procura criaturas " +
+                "que estejam cacando o companheiro ou o jogador dono.");
+
+            _combatLeashDistance = Config.Bind(
+                "Combate",
+                "Coleira",
+                50f,
+                "Distancia maxima (m) entre o alvo de combate e o jogador seguido. " +
+                "Passando disso o companheiro larga o alvo e volta a seguir o jogador.");
+
+            _attackNeutralAnimals = Config.Bind(
+                "Combate",
+                "AtacarAnimaisNeutros",
+                false,
+                "Se true, o companheiro tambem caca a fauna neutra (javali, cervo, passaro...) - " +
+                "a faccao AnimalsVeg do jogo. Por padrao ele so ataca criaturas hostis.");
+
+            _combatScanInterval = Config.Bind(
+                "Combate",
+                "IntervaloVarredura",
+                0.5f,
+                "Intervalo em segundos entre as varreduras de alvo (0.1 a 2.0). " +
+                "A varredura nunca roda por frame.");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -137,6 +201,16 @@ namespace ModAIValheim
                 $"cabelo = '{_hairPrefab.Value}' | barba = '{_beardPrefab.Value}' | " +
                 $"pele = '{_skinColor.Value}' | cabelo/cor = '{_hairColor.Value}'.");
 
+            // Combate: modo, tecla de ciclo e raios (Fase 2.4a).
+            CompanionCombat.Configure(
+                _combatMode,
+                _combatModeKey,
+                _aggressiveRadius,
+                _defensiveRadius,
+                _combatLeashDistance,
+                _attackNeutralAnimals,
+                _combatScanInterval);
+
             // Prefab do companheiro: clonado dos prefabs vanilla assim que eles estiverem
             // disponíveis (o Jotunn dispara o evento a cada carga de ObjectDB).
             CompanionPrefab.Hook();
@@ -145,6 +219,7 @@ namespace ModAIValheim
             CompanionAppearance.Configure(
                 _appearanceEnabled, _hairPrefab, _beardPrefab, _skinColor, _hairColor);
             CompanionCommands.Register();
+            ApplyHarmonyPatches();
 
             if (_logDetalhado.Value)
             {
@@ -152,14 +227,39 @@ namespace ModAIValheim
             }
         }
 
-        /// <summary>Teclas de spawn/dismiss do companheiro (o Tick sai rápido fora do mundo).</summary>
+        /// <summary>
+        /// Aplica os patches Harmony do mod (observadores de dano do combate). Fica isolado num
+        /// try/catch: um patch que não casa (jogo atualizado) não pode derrubar o plugin inteiro.
+        /// </summary>
+        private void ApplyHarmonyPatches()
+        {
+            try
+            {
+                _harmony = new Harmony(PluginGuid);
+                _harmony.PatchAll(typeof(Plugin).Assembly);
+                Log.LogInfo("[ModIA] Patches Harmony aplicados.");
+            }
+            catch (Exception e)
+            {
+                Log.LogError($"[ModIA] Falha ao aplicar patches Harmony: {e}");
+            }
+        }
+
+        /// <summary>Teclas de spawn/dismiss e de modo de combate (o Tick sai rápido fora do mundo).</summary>
         private void Update()
         {
             CompanionManager.Tick();
+            CompanionCombat.Tick();
         }
 
         private void OnDestroy()
         {
+            if (_harmony != null)
+            {
+                _harmony.UnpatchSelf();
+                _harmony = null;
+            }
+
             CompanionPrefab.Unhook();
             CompanionManager.Shutdown();
         }
