@@ -54,6 +54,12 @@
       <Publicize>true</Publicize>
     </Reference>
 
+    <!-- Utilitarios do jogo (ZInput, Utils). ZInput mora aqui, nao em assembly_valheim. -->
+    <Reference Include="assembly_utils">
+      <HintPath>$(MANAGED_PATH)\assembly_utils.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
     <!-- Unity -->
     <Reference Include="UnityEngine">
       <HintPath>$(MANAGED_PATH)\UnityEngine.dll</HintPath>
@@ -61,6 +67,14 @@
     </Reference>
     <Reference Include="UnityEngine.CoreModule">
       <HintPath>$(MANAGED_PATH)\UnityEngine.CoreModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.PhysicsModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.PhysicsModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.AnimationModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.AnimationModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
