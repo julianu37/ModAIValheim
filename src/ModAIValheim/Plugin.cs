@@ -18,7 +18,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.0";
+        public const string PluginVersion = "0.2.1";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -41,8 +41,9 @@ namespace ModAIValheim
             _spawnKey = Config.Bind(
                 "Teclas",
                 "SpawnKey",
-                KeyCode.G,
-                "Tecla para invocar o companheiro (ignorada se ele já estiver no mundo).");
+                KeyCode.F1,
+                "Tecla para invocar o companheiro (ignorada se ele já estiver no mundo). " +
+                "Padrao F1 (a tecla G e usada pelo menu radial do jogo).");
 
             _dismissKey = Config.Bind(
                 "Teclas",
