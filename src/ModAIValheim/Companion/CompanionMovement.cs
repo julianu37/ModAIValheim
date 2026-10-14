@@ -8,8 +8,9 @@ namespace ModAIValheim.Companion
     /// Quem dirige o movimento do companheiro no frame atual. É o "dono único" que evita que
     /// follow nativo, coleta e as guardas de porta/barranco chamem <c>MoveTo</c>/<c>MoveTowards</c>
     /// ao mesmo tempo (a última escrita venceria de forma imprevisível).
-    /// Prioridade: <see cref="Harvest"/> (coleta ativa) &gt; <see cref="Native"/> (follow/combate do
-    /// motor do jogo); o combate vence a coleta pausando-a antes de chegar aqui.
+    /// Prioridade: <see cref="Harvest"/> (coleta ativa) &gt; <see cref="Loot"/> (catar abate) &gt;
+    /// <see cref="Native"/> (follow/combate do motor do jogo); o combate vence a coleta pausando-a
+    /// antes de chegar aqui.
     /// </summary>
     internal enum MovementOwner
     {
@@ -21,6 +22,12 @@ namespace ModAIValheim.Companion
 
         /// <summary>A camada de coleta (aproximação do nó/drop).</summary>
         Harvest,
+
+        /// <summary>
+        /// A camada de <b>loot de criatura</b> (aproximação do corpo/itens de um abate do próprio
+        /// companheiro). Só existe quando não há tarefa de coleta ativa.
+        /// </summary>
+        Loot,
     }
 
     /// <summary>

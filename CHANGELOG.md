@@ -3,6 +3,86 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.0] — 2026-10-14
+
+### Adicionado
+- **Catar os drops das criaturas que o companheiro mesmo abateu** (Fase 2.12, item #4 da
+  [auditoria](docs/audit-vs-offline-companions.md)). Antes, matar um cervo/javali deixava o couro,
+  as penas e os ossos no chão para sempre — agora ele **volta ao corpo e cata** o que aquele abate
+  gerou:
+  - **Detecção (patch observador):** prefix Harmony em `Character.OnDeath` lê o `Character.m_lastHit`
+    do falecido — o **último golpe** que ele levou (o mesmo campo que o próprio jogo usa para
+    creditar o abate: `m_lastHit?.GetAttacker()`) — e, se o atacante tem um `CompanionAI`, enfileira
+    o **ponto do abate**. O `Attack.DoAttack` preenche `HitData.m_attacker` com o ZDOID de quem
+    golpeou (`hitData.SetAttacker(m_character)`), então `GetAttacker()` resolve o companheiro sem
+    precisarmos manter nenhum "último atacante" nosso. Patch **barato** (sai na primeira comparação
+    na esmagadora maioria das mortes), **`try/catch`** (nunca lança) e só age no **dono do ZDO**
+    (`IsLocallyOwned`).
+  - **Só o que aquele abate gerou:** no instante da morte é fotografado o conjunto de `ItemDrop` que
+    **já estava no chão** em volta (`Before`); a varredura só considera itens **fora** dessa foto —
+    nada de varrer a tralha que o jogador deixou ali.
+  - **Espera os itens saírem do corpo:** os drops de criatura não nascem na morte — o
+    `Character.OnDeath` cria um **ragdoll** com a lista de drops salva no ZDO e é o
+    `Ragdoll.DestroyNow → SpawnLoot` que instancia os itens alguns segundos depois. O companheiro vai
+    ao ponto do abate, **segue o corpo** (ragdoll que escorrega ribanceira abaixo, sondagem 1×/s) e
+    **espera** (`Loot/TempoEspera`, padrão 15 s) antes de declarar "nada caiu".
+  - **Como pega:** o item entra no follow do motor nativo (pathfinding) e o companheiro usa o mesmo
+    caminho do jogador: `ItemDrop.RequestOwn()` quando não é dono do item e
+    `Humanoid.Pickup(go, autoequip: false, autoPickupDelay: false)`. Só itens com
+    `ItemDrop.m_autoPickup` (o mesmo filtro do auto-pickup do jogador) — item dropado à mão pelo
+    jogador **não** é roubado.
+  - **Limites:** raio (`Loot/RaioCatar`, 8 m), distância máxima do abate ao companheiro **e** ao
+    jogador (`Loot/DistanciaMaxima`, 30 m), fila (`Loot/LimiteFila`, 6 — ao encher, o abate mais
+    antigo é abandonado), espera (`Loot/TempoEspera`, 15 s), teto de tempo por abate
+    (`Loot/TempoMaximo`, 45 s), peso opcional (`Loot/PesoMaximo`, 0 = sem limite) e guardas de
+    travamento (não chegou ao corpo em 6 s; item inalcançável em 12 s). Itens presos no piche ou
+    submersos são descartados.
+  - **Prioridade preservada:** **combate > coleta > loot/follow**. Com alvo hostil ou com tarefa de
+    coleta ativa o abate volta para a **frente da fila** (`CompanionLoot.Pause`) — o relógio dele
+    para junto, então ele não "expira" esperando a vez — e o loot toma o frame só quando o
+    companheiro está livre. Novo `MovementOwner.Loot` garante o **dono único do movimento por frame**
+    (as guardas de porta/barranco não brigam com ele).
+  - **Log deduplicado** (mesma política da 0.3.4): `Loot: o companheiro abateu 'Javali' (3 item(ns)
+    já estavam no chão ali); 1 abate(s) para catar.` → `Loot: indo catar o que 'Javali' deixou a
+    14 m` → `Loot: +1x 'LeatherScraps'.` → `Loot: fim do abate de 'Javali' (peguei tudo que caiu)`.
+- Config `[Loot]` (7 opções, todas em PT-BR): `CatarDropsDeCriatura`, `RaioCatar`, `DistanciaMaxima`,
+  `LimiteFila`, `TempoEspera`, `TempoMaximo`, `PesoMaximo`.
+- Seção **"Loot de criatura"** no `README` com a receita de teste (javali/cervo e Greydwarf).
+
+### Alterado
+- `CompanionAI.UpdateAI` ganhou a camada `UpdateLoot(dt)`, que roda **depois** de `UpdateHarvest`;
+  `ApproachAndWork` passou a receber o **dono do movimento** do frame (`MovementOwner.Harvest` na
+  coleta, `MovementOwner.Loot` no loot) em vez de fixar `Harvest`.
+- `CompanionMovement.MovementOwner` ganhou o valor `Loot` (prioridade coleta > loot > follow nativo).
+- `CompanionManager` limpa o estado do loot ao **dispensar**, na **morte** do companheiro e no
+  **unload** do plugin (`CompanionLoot.Shutdown()`), para a fila não sobreviver ao NPC.
+- Versão do plugin → **0.4.0**.
+
+### Notas
+- **Referência (MIT, uso livre):** a feature espelha a *lógica* de `src/Companions/Jobs/MHR_Loot.cs`
+  (`MHR_Loot.OnKill`/`Drive`, `MHR_Loot_OnDeath_Patch`) do
+  [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn) (ver
+  `THIRD_PARTY_NOTICES.md`): fila limitada, foto do "antes" para ignorar o que já estava no chão,
+  seguir o corpo e respeitar peso/distância. A implementação no ModIA é própria (adaptada ao nosso
+  modelo de estados, ao dono do movimento por frame e aos buffers reaproveitados), sem cópia de
+  arquivo.
+- **API confirmada no `assembly_valheim.dll` 1.0.17:** `Character.OnDeath()` é `public virtual`
+  (patchável), `Character.m_lastHit` é `protected HitData` (acessível pelo publicizer),
+  `HitData.GetAttacker()` resolve por ZDOID, `Ragdoll.m_dropItems`/`GetAverageBodyPosition()`,
+  `ItemDrop.m_autoPickup`/`CanPickup()`/`RequestOwn()`/`InTar()`, `Humanoid.Pickup(GameObject,
+  bool, bool)`, `Inventory.CanAddItem(ItemData, int)`/`GetTotalWeight()` e `ItemData.GetWeight()`.
+- **Sem duplicação:** o `CharacterDrop` do **alvo** (criatura normal do jogo) continua dropando
+  normalmente — o companheiro apenas **cata** o que caiu. O corpo do **companheiro** continua sem
+  `CharacterDrop` (o prefab o remove desde a 0.3.0).
+- **Performance:** o patch de `OnDeath` é uma checagem de referência por morte; a varredura de loot
+  roda a cada **0,4 s** com buffer pré-alocado (`OverlapSphereNonAlloc`, 128 colliders), a sondagem
+  de corpo no máximo **1×/s** e para assim que algum item é visto; nenhuma alocação por frame e
+  nenhum `Find*`/LINQ por frame. O `MovementOwner.Loot` impede `MoveTo` concorrente.
+- **Fora do escopo:** multiplayer completo (o loot roda no dono do ZDO, como o resto da IA) e
+  depósito em baú (item #7 da auditoria).
+- **Configs novas:** se o seu `modia.companion.cfg` não tiver a seção `[Loot]`, o jogo a cria com os
+  defaults ao carregar. Nenhum default existente mudou.
+
 ## [0.3.4] — 2026-10-14
 
 ### Corrigido

@@ -33,6 +33,9 @@ namespace ModAIValheim
     /// Fase 2.11: correção do loop da coleta — a seleção de nó passou a respeitar a mesma "coleira"
     /// do jogador que a guarda de distância, o nó largado por "jogador se afastou" não é re-escolhido
     /// no mesmo tick (o companheiro volta a seguir) e o log de nó só sai quando o evento muda.
+    /// Fase 2.12: o companheiro cata os drops das criaturas que ele mesmo abateu (couro, penas,
+    /// ossos...) — patch observador em Character.OnDeath enfileira o ponto do abate e a camada de
+    /// loot vai ao corpo, espera os itens saírem do ragdoll e pega só o que aquele abate gerou.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -40,7 +43,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.3.4";
+        public const string PluginVersion = "0.4.0";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -94,6 +97,15 @@ namespace ModAIValheim
         private ConfigEntry<string> _harvestLayers;
         private ConfigEntry<bool> _harvestProvideTools;
         private ConfigEntry<string> _harvestProvidedTools;
+
+        // Loot de criatura abatida pelo companheiro (Fase 2.12).
+        private ConfigEntry<bool> _lootEnabled;
+        private ConfigEntry<float> _lootRadius;
+        private ConfigEntry<float> _lootMaxDistance;
+        private ConfigEntry<int> _lootQueueLimit;
+        private ConfigEntry<float> _lootWaitSeconds;
+        private ConfigEntry<float> _lootMaxSeconds;
+        private ConfigEntry<float> _lootMaxWeight;
 
         // Interface (Fase 2.6a).
         private ConfigEntry<bool> _hoverHints;
@@ -378,6 +390,61 @@ namespace ModAIValheim
                 "exige um tier maior (prata/obsidiana), o mod cria a MELHOR da lista que atenda " +
                 "(ex.: PickaxeIron). Padrao: AxeStone,PickaxeAntler,PickaxeIron.");
 
+            // Loot de criatura abatida pelo companheiro (Fase 2.12, item #4 da auditoria).
+            _lootEnabled = Config.Bind(
+                "Loot",
+                "CatarDropsDeCriatura",
+                true,
+                "Se true (padrao), o companheiro vai atras dos drops das criaturas que ELE MESMO " +
+                "abateu (couro, penas, ossos, hide...) e pega o que caiu. Só o que aquele abate " +
+                "gerou: itens que ja estavam no chao sao ignorados. Roda fora do combate e fora de " +
+                "uma tarefa de coleta (prioridade: combate > coleta > loot).");
+
+            _lootRadius = Config.Bind(
+                "Loot",
+                "RaioCatar",
+                8f,
+                "Raio em metros, em volta do ponto do abate, onde o companheiro procura os itens " +
+                "que cairam (2 a 30).");
+
+            _lootMaxDistance = Config.Bind(
+                "Loot",
+                "DistanciaMaxima",
+                30f,
+                "Distancia maxima em metros do local do abate ate o companheiro E ate o jogador " +
+                "seguido (5 a 200). Passando disso o companheiro desiste de catar e volta a seguir " +
+                "voce - a caca e servico, nao fuga.");
+
+            _lootQueueLimit = Config.Bind(
+                "Loot",
+                "LimiteFila",
+                6,
+                "Quantos abates ficam na fila para catar ao mesmo tempo (1 a 20). Ao encher, o " +
+                "abate mais antigo e abandonado.");
+
+            _lootWaitSeconds = Config.Bind(
+                "Loot",
+                "TempoEspera",
+                15f,
+                "Tempo maximo, em segundos, que o companheiro espera PARADO no local do abate pelos " +
+                "itens sairem do corpo (3 a 60). Os drops de criatura so nascem quando o ragdoll " +
+                "desaparece, alguns segundos depois da morte.");
+
+            _lootMaxSeconds = Config.Bind(
+                "Loot",
+                "TempoMaximo",
+                45f,
+                "Teto em segundos do trabalho de UM abate (5 a 180): nunca deixa o companheiro " +
+                "vagando atras de um corpo.");
+
+            _lootMaxWeight = Config.Bind(
+                "Loot",
+                "PesoMaximo",
+                0f,
+                "Peso maximo em kg que o companheiro aceita carregar de loot (0 = sem limite, o " +
+                "padrao - o jogo nao tem limite de peso para personagens). Com um valor > 0 ele " +
+                "para de catar quando a carga passa disso e volta a seguir voce.");
+
             // Interface (Fase 2.6a).
             _hoverHints = Config.Bind(
                 "Interface",
@@ -464,6 +531,16 @@ namespace ModAIValheim
 
             // Ferramenta de coleta fornecida quando falta (Fase 2.8).
             CompanionInventory.ConfigureHarvestTools(_harvestProvideTools, _harvestProvidedTools);
+
+            // Loot de criatura abatida pelo companheiro (Fase 2.12, item #4 da auditoria).
+            CompanionLoot.Configure(
+                _lootEnabled,
+                _lootRadius,
+                _lootMaxDistance,
+                _lootQueueLimit,
+                _lootWaitSeconds,
+                _lootMaxSeconds,
+                _lootMaxWeight);
 
             CompanionCommands.Register();
 

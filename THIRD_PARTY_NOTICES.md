@@ -49,3 +49,11 @@ SOFTWARE.
 >   `CloseDoor`), `src/Companions/AI/DoorHandler.cs` (`IsValidClosedDoor`) e
 >   `src/Companions/AI/CompanionCombatAI.cs` (`UpdateBlocking`). A implementação no ModIA é própria
 >   (`CompanionMovement` + o dono do movimento por frame do `CompanionAI`), sem cópia de arquivo.
+> - **Fase 2.12 (v0.4.0)** — o **loot de criatura** segue a lógica de
+>   `src/Companions/Jobs/MHR_Loot.cs` (`MHR_Loot` + `MHR_Loot_OnDeath_Patch`): patch observador em
+>   `Character.OnDeath` para saber quem deu o último golpe, fila limitada de abates, foto dos itens
+>   que já estavam no chão (`Before`) para catar só o que aquele abate gerou, espera pelos drops que
+>   saem do ragdoll, acompanhamento do corpo e limites de peso/distância/tempo. A implementação no
+>   ModIA é própria (`CompanionLoot` + `CompanionLootPatches` + `CompanionAI.UpdateLoot`, adaptados ao
+>   modelo de estados, ao dono do movimento por frame e aos buffers reaproveitados), sem cópia de
+>   arquivo.

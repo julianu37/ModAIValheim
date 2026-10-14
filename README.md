@@ -5,7 +5,8 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
 > equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, minérios e
-> colhíveis — ver a [tabela de materiais](#materiais-suportados-fase-28)), **abre portas e evita
+> colhíveis — ver a [tabela de materiais](#materiais-suportados-fase-28)) e **cata os drops das
+> criaturas que ele mesmo abate** (couro, penas, ossos...), **abre portas e evita
 > barrancos no caminho**, mostra **nome + teclas no
 > hover**, tem um **menu no jogo** (status, aparência, combate, coleta e teclas) e **volta o mesmo**
 > depois de dispensado (itens, equipamento, aparência e modo). Ainda faltam **multiplayer**,
@@ -217,7 +218,7 @@ produção do jogador):
 
 | Material | Por que não |
 |---|---|
-| `Feathers` (Penas), `LeatherScraps` (Retalhos de couro), `DeerHide` (Pele de cervo), `BoneFragments` (Fragmentos de osso), `GreydwarfEye` (Olho de Greydwarf), `Guck` (Gosma), `TrollHide` | só caem de **criatura** (`CharacterDrop`) — a coleta por combate é outra fase |
+| `Feathers` (Penas), `LeatherScraps` (Retalhos de couro), `DeerHide` (Pele de cervo), `BoneFragments` (Fragmentos de osso), `GreydwarfEye` (Olho de Greydwarf), `Guck` (Gosma), `TrollHide` | não há **nó** para o companheiro procurar — mas desde a **Fase 2.12** ele **cata** o que essas criaturas deixam quando **ele mesmo** as abate (ver [Loot de criatura](#loot-de-criatura-fase-212)) |
 | `Coal` (Carvão) | produção do jogador (fornalha/kiln) ou drop de Surtling |
 | `Amber`, `AmberPearl`, `Ruby`, `SilverNecklace`, `Gold` | **baú / tesouro enterrado** (contêiner), não nó |
 | Peixe (`Fish*`) | pesca (a Fase de coleta não cobre a vara) |
@@ -276,6 +277,48 @@ Para ele trabalhar mais longe, aumente `Coleta/RaioVarredura` (a coleira acompan
 não existia essa coerência: ele escolhia um nó que a guarda largava no tick seguinte e ficava preso
 num ciclo de escolher/largar o mesmo nó, **sem nunca voltar a seguir** (bug do loop da coleta).
 
+### Loot de criatura (Fase 2.12)
+
+O companheiro **cata o que ele mesmo abateu** (item #4 da
+[auditoria](docs/audit-vs-offline-companions.md)). Matar um javali e seguir em frente deixando o
+couro no chão era o comportamento antigo; agora ele **volta ao corpo**, espera os itens saírem e
+pega:
+
+```
+[ModIA] Loot: o companheiro abateu 'Javali' (2 item(ns) já estavam no chão ali); 1 abate(s) para catar.
+[ModIA] Loot: indo catar o que 'Javali' deixou a 14 m (0 abate(s) ainda na fila).
+[ModIA] Loot: +1x 'LeatherScraps'.
+[ModIA] Loot: +1x 'BoarTusk'.
+[ModIA] Loot: fim do abate de 'Javali' (peguei tudo que caiu).
+```
+
+- **Só o que *este* abate gerou.** No instante da morte é fotografado o conjunto de itens que **já
+  estava no chão** ali; a varredura ignora essa foto. Um baú de tralha que você largou no chão
+  **não** é catado — e item dropado à mão pelo jogador tem `m_autoPickup = false`, então também
+  fica onde está.
+- **Espera o corpo.** Drops de criatura **não** nascem na morte: o jogo cria um **ragdoll** com a
+  lista de drops e são os itens que saem dele quando ele desaparece (alguns segundos depois). Por
+  isso o companheiro vai ao ponto do abate, **segue o corpo** se ele escorregar e **espera** até
+  `Loot/TempoEspera` (15 s) antes de dizer "nada caiu".
+- **Como sabemos que o abate foi dele.** O patch observador em `Character.OnDeath` lê o
+  `m_lastHit` do falecido (o **último golpe**, o mesmo campo que o jogo usa para creditar o abate) e
+  confere se o atacante é o nosso companheiro. Nenhum estado extra por golpe.
+- **Prioridade: combate > coleta > loot/follow.** Com um inimigo hostil ou com uma **tarefa de
+  coleta ativa** o abate volta para a **frente da fila** (o relógio dele para junto) e o companheiro
+  volta a ele assim que estiver livre. Os itens ficam no chão — nada se perde.
+- **Limites (todos configuráveis em `[Loot]`):** raio de 8 m em volta do abate, distância máxima de
+  30 m (do companheiro **e** do jogador), fila de 6 abates (ao encher, o mais antigo é abandonado),
+  espera de 15 s, teto de 45 s por abate, peso máximo opcional (`0` = sem limite) e guardas de
+  travamento (não chegou ao corpo em 6 s; item inalcançável em 12 s). Itens no piche/água funda são
+  descartados.
+- **Pega como o jogador:** `ItemDrop.RequestOwn()` quando não é dono do item e `Humanoid.Pickup(...)`
+  — inclusive com `autoequip` desligado, para ele não trocar de arma ao catar um machado.
+- Desligue tudo com `Loot/CatarDropsDeCriatura = false`.
+
+> **Para o companheiro *caçar* javali/cervo** é preciso `Combate/AtacarAnimaisNeutros = true`: fora
+> do combate ele ignora a fauna passiva (item #14). Criaturas **hostis** (Greydwarf, esqueleto,
+> Neck) ele já ataca nos modos Defensive/Aggressive — e o loot funciona igual.
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
@@ -287,6 +330,8 @@ num ciclo de escolher/largar o mesmo nó, **sem nunca voltar a seguir** (bug do 
 - **Movimento** — `ProtecaoContraQueda`, `QuedaMaxima`, `DistanciaSondagem`, `AbrirPortas`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
   `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`
+- **Loot** — `CatarDropsDeCriatura`, `RaioCatar`, `DistanciaMaxima`, `LimiteFila`, `TempoEspera`,
+  `TempoMaximo`, `PesoMaximo`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -306,7 +351,7 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Appearance, Combat, Harvest, Hover, Menu...
+│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Appearance, Combat, Harvest, Loot, Hover, Menu...
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -405,6 +450,32 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
    script!"` não deve mais aparecer no log ao bater nas árvores (era benigno — ver `CHANGELOG` 0.3.4).
 5. **Nada mais mudou**: spawn/dismiss, follow, combate, aparência, hover, menu e persistência seguem
    iguais; a coleta normal (árvore → tora → madeira, pedra, cascata) continua funcionando.
+
+### Teste rápido do loot de criatura (Fase 2.12)
+
+1. **Preparo**: **F1** invoca o companheiro e equipe uma arma de verdade nele
+   (`modia_equip AxeStone` ou `modia_equip SwordBronze` — o `Club` padrão também serve).
+2. **Fauna passiva (javali/cervo)**: no `.cfg`, ligue `Combate/AtacarAnimaisNeutros = true` (o padrão
+   é `false`, e nesse caso ele **ignora** a fauna neutra por design — item #14). No console do jogo
+   (**F5**) rode `spawn Boar 2` (ou ache um cervo/javali no mundo) e deixe o companheiro matar.
+   - O log deve mostrar `Loot: o companheiro abateu 'Javali' ...` → `Loot: indo catar o que 'Javali'
+     deixou ...` → `Loot: +1x 'LeatherScraps'` / `+1x 'BoarTusk'` → `Loot: fim do abate de 'Javali'
+     (peguei tudo que caiu)`.
+   - `modia_inv` (console) deve listar `LeatherScraps`/`BoarTusk` no inventário do companheiro.
+   - **Cervo** (`spawn Deer 1`) rende `DeerHide` e `RawMeat` — é o caso clássico de "couro no chão".
+3. **Criatura hostil (sem mexer em config)**: em modo **Aggressive** ou **Defensive** (**F3**),
+   deixe-o matar um **Greydwarf** (`spawn Greydwarf 1`) — ele cata `GreydwarfEye`, `Resin`, `Wood`,
+   `Stone`. Esqueleto (`spawn Skeleton 1`) rende `BoneFragments`.
+4. **Só o que o abate gerou**: antes da briga, jogue alguns itens no chão perto (drop manual com
+   `Q`). Depois do abate, o companheiro deve catar **só** os drops da criatura e **deixar** os seus
+   itens no lugar.
+5. **Prioridade**: comece uma coleta (`modia_gather wood 20`) e mate algo no meio: o log mostra
+   `Loot: '<criatura>' de volta à fila (coleta em andamento)` e o companheiro **continua coletando**;
+   ao parar a coleta (`modia_stop`), ele **volta** ao corpo e cata.
+6. **Limites**: com `Loot/CatarDropsDeCriatura = false` ele não cata nada; com
+   `Loot/DistanciaMaxima = 8`, sair andando depois do abate faz o log mostrar
+   `fim do abate de '...' (o jogador seguiu em frente)`. Com `Loot/PesoMaximo = 5`, ele para de catar
+   ao passar de 5 kg (`carga acima de 5 kg`).
 
 ---
 

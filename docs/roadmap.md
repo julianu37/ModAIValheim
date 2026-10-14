@@ -39,6 +39,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.9 | Coleta: correções da auditoria (espera pelos drops, rocha "rachada", tora mais próxima, ferramenta por tier) | ✅ |
 | 2.10 | Movimento/combate: proteção contra queda, portas no caminho, bloqueio/parry e filtro de alvo passivo | ✅ |
 | 2.11 | Coleta: fim do loop de escolher/largar nó (seleção respeita a "coleira" do jogador) + log só na mudança | ✅ |
+| 2.12 | Loot: catar os drops das criaturas abatidas pelo companheiro (patch em `Character.OnDeath` + estado de loot) | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -105,3 +106,12 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   e só varre no próximo ciclo) e o log de escolha/largada **só sai quando o evento muda** (10 s de
   janela por nó+motivo). Também silencia o aviso de `Character.RaiseSkill` para o companheiro domado
   sem `Tameable` (`CompanionSkillPatches`), que era benigno mas poluía o log.
+- **Fase 2.12 (0.4.0)** — **loot de criatura** (item #4 da auditoria): o companheiro **cata o que ele
+  mesmo abateu**. Patch Harmony **observador** em `Character.OnDeath` lê o `m_lastHit` do falecido
+  (o último golpe — o mesmo campo que o jogo usa para creditar o abate) e enfileira o ponto do abate;
+  a camada `CompanionLoot`/`UpdateLoot` vai ao corpo, **espera os itens saírem do ragdoll** (eles só
+  nascem quando o corpo desaparece), **segue o corpo** se ele escorregar e cata só os `ItemDrop` que
+  **aquele** abate gerou (foto do "antes" ignora o que já estava no chão), respeitando raio, distância
+  máxima, peso, fila de 6 e tetos de tempo. Prioridade preservada (**combate > coleta > loot/follow**,
+  com o abate voltando à frente da fila e o relógio pausado) e novo `MovementOwner.Loot` no dono único
+  do movimento por frame. Ver `docs/audit-vs-offline-companions.md`.

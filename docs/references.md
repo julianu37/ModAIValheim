@@ -24,7 +24,7 @@ projetos de terceiros com licença permissiva. Leia as **regras de uso** no fim 
 | Pasta | Conteúdo útil |
 |---|---|
 | `AI/` | `CompanionAI`, `CompanionCombatAI`, escolha de arma/escudo, tocha, segurança na água, portas, `MHR_Mover` |
-| `Jobs/` | Modos de trabalho: **harvest (wood/stone/ore/forage)**, farm, fish, hunt, cook, smelt, repair (gear), repair/restock (buildings, fires, **chest sorting**), regras de gather/seed, **tool keeper** |
+| `Jobs/` | Modos de trabalho: **harvest (wood/stone/ore/forage)**, **loot (catar os drops da criatura abatida — `MHR_Loot`)**, farm, fish, hunt, cook, smelt, repair (gear), repair/restock (buildings, fires, **chest sorting**), regras de gather/seed, **tool keeper** |
 | `UI/` | Painéis, **menu radial**, HUD, painel de config, zone placers, fixes de fonte e inventory-grid |
 | `Patches/` | Patches Harmony em classes vanilla |
 | `Diagnostics/` | Helpers de log (`[AIGate]`, `[EQUIPDIAG]`, `[GRIDDIAG]`, `[UiDiag]`, `[Diag]`) |

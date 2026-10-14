@@ -137,6 +137,7 @@ namespace ModAIValheim.Companion
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
             CompanionHarvest.Shutdown();
+            CompanionLoot.Shutdown();
             CompanionMovement.Shutdown();
         }
 
@@ -276,6 +277,7 @@ namespace ModAIValheim.Companion
 
             // Coleta em andamento não faz sentido sem companheiro.
             CompanionHarvest.Stop("companheiro dispensado");
+            CompanionLoot.Shutdown();
 
             Plugin.Log.LogInfo("[ModIA] Companheiro dispensado.");
             ShowMessage("Companheiro dispensado.");
@@ -372,6 +374,7 @@ namespace ModAIValheim.Companion
             Plugin.Log.LogInfo("[ModIA] Companheiro morreu.");
             _companion = null;
             CompanionHarvest.Stop("companheiro morreu");
+            CompanionLoot.Shutdown();
             ShowMessage("Seu companheiro morreu! Os itens dele ficaram guardados (F1 invoca de novo).");
         }
 

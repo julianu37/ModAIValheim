@@ -110,6 +110,30 @@ namespace ModAIValheim.Companion
         /// <summary>Posição do último nó em trabalho (para achar a cópia "rachada" e os drops).</summary>
         private Vector3 _lastNodePosition;
 
+        // --- Fase 2.12: catar os drops de criatura que o próprio companheiro abateu --------------
+        /// <summary>True enquanto a camada de loot esteve no comando no frame anterior.</summary>
+        private bool _lootWasActive;
+
+        /// <summary>Item do abate que o companheiro está indo pegar (null = varrendo/esperando).</summary>
+        private ItemDrop _lootTarget;
+
+        private float _lootScanTimer;
+
+        /// <summary>Falhas seguidas ao pegar (inventário cheio/peso) antes de desistir do abate.</summary>
+        private int _lootPickupFailures;
+
+        /// <summary>Intervalo (s) entre tentativas de pegar um item do abate (independente da coleta).</summary>
+        private float _lootInteractTimer;
+
+        /// <summary>Momento em que o item-alvo do loot foi escolhido (para desistir se for inalcançável).</summary>
+        private float _lootTargetSince;
+
+        /// <summary>Tempo (s) tentando alcançar um item do abate antes de desistir dele.</summary>
+        private const float LootTargetTimeout = 12f;
+
+        /// <summary>Falhas seguidas de <c>Pickup</c> que fazem desistir do abate atual.</summary>
+        private const int LootPickupFailuresBeforeGiveUp = 3;
+
         /// <summary>Tipo do último nó em trabalho (None = não há nó para "seguir o rastro").</summary>
         private HarvestNodeKind _lastNodeKind = HarvestNodeKind.None;
 
@@ -258,6 +282,10 @@ namespace ModAIValheim.Companion
             // manda no movimento/mira/ataque (a última escrita em SetMoveDir/SetLookDir vence) e
             // quem decide o que o MonsterAI segue.
             UpdateHarvest(dt);
+
+            // Fase 2.12 (#4): catar o que o próprio companheiro abateu. Roda depois da coleta e só
+            // quando ela NÃO está ativa (prioridade combate > coleta > loot/follow).
+            UpdateLoot(dt);
 
             // Fase 2.10 (#2/#5): guarda o passo do follow nativo (porta/barranco) — só quando a
             // coleta não reivindicou o frame.
@@ -865,7 +893,7 @@ namespace ModAIValheim.Companion
             if (info.Kind == HarvestNodeKind.ItemDrop)
             {
                 CompanionHarvest.ReportDistance(node, distance);
-                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach, MovementOwner.Harvest);
                 if (distance <= CompanionHarvest.InteractReach)
                 {
                     PickupDropNode(node);
@@ -877,7 +905,7 @@ namespace ModAIValheim.Companion
             if (info.Kind == HarvestNodeKind.Pickable)
             {
                 CompanionHarvest.ReportDistance(node, distance);
-                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach, MovementOwner.Harvest);
                 if (distance <= CompanionHarvest.InteractReach)
                 {
                     HarvestPickableNode(node);
@@ -894,7 +922,7 @@ namespace ModAIValheim.Companion
             CompanionHarvest.ReportDistance(node, aimDistance);
 
             float reach = GetHarvestReach();
-            ApproachAndWork(dt, aim, reach);
+            ApproachAndWork(dt, aim, reach, MovementOwner.Harvest);
             if (aimDistance <= reach)
             {
                 StrikeNode(node, aim);
@@ -1091,7 +1119,7 @@ namespace ModAIValheim.Companion
 
             Vector3 point = _dropTarget.transform.position;
             float distance = Vector3.Distance(point, transform.position);
-            ApproachAndWork(dt, point + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+            ApproachAndWork(dt, point + Vector3.up * 0.6f, CompanionHarvest.InteractReach, MovementOwner.Harvest);
             if (distance <= CompanionHarvest.InteractReach)
             {
                 PickupDropNode(_dropTarget);
@@ -1110,6 +1138,286 @@ namespace ModAIValheim.Companion
 
             ItemDrop item = drop.GetComponent<ItemDrop>();
             return item != null && !item.InTar();
+        }
+
+        // ---------------------------------------------------------------------
+        // Fase 2.12 (#4): catar os drops de criatura que o companheiro abateu
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Camada de <b>loot de criatura</b> (item #4 da auditoria): o companheiro volta ao ponto
+        /// onde <b>ele mesmo</b> abateu a criatura e cata os itens que aquele abate gerou
+        /// (<see cref="CompanionLoot"/>). É o fluxo que faltava: matar um cervo e deixar o couro no
+        /// chão.
+        ///
+        /// <para>
+        /// <b>Prioridade (combate &gt; coleta &gt; loot/follow):</b> com um alvo hostil ou com uma
+        /// <b>tarefa de coleta ativa</b> o loot apenas espera na fila (nada se perde — os itens
+        /// continuam no chão). Fora disso ele toma o frame: é o "slot" do follow.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Como anda e pega:</b> o item entra no follow do motor nativo
+        /// (<c>base.SetFollowTarget</c>) para o pathfinding e o <see cref="ApproachAndWork"/> aperta
+        /// o raio de parada; ao chegar, pega com <c>Humanoid.Pickup</c> (o mesmo caminho do jogador,
+        /// incluindo o <c>RequestOwn</c> quando não somos donos do item). Sem item à vista ele vai ao
+        /// <b>ponto do abate</b> e <b>espera</b>: os itens só saem do corpo quando o ragdoll
+        /// desaparece (<c>Ragdoll.DestroyNow → SpawnLoot</c>).
+        /// </para>
+        /// </summary>
+        private void UpdateLoot(float dt)
+        {
+            if (!CompanionLoot.Enabled)
+            {
+                if (_lootWasActive)
+                {
+                    ResetLootDrive();
+                }
+
+                return;
+            }
+
+            // Prioridade: combate > coleta > loot/follow. Quem assumiu o companheiro (um alvo hostil
+            // ou uma tarefa de coleta ativa) devolve o abate em andamento para a FRENTE da fila — o
+            // relógio dele para junto, então ele não "expira" parado esperando a vez.
+            if (CompanionHarvest.IsActive || GetTargetCreature() != null)
+            {
+                if (_lootWasActive)
+                {
+                    CompanionLoot.Pause(
+                        GetTargetCreature() != null ? "combate" : "coleta em andamento");
+                    ResetLootDrive();
+                }
+
+                return;
+            }
+
+            if (!CompanionLoot.HasWork)
+            {
+                if (_lootWasActive)
+                {
+                    ResetLootDrive();
+                }
+
+                return;
+            }
+
+            _lootWasActive = true;
+            _lootInteractTimer -= dt;
+
+            if (!CompanionLoot.TryBeginNext())
+            {
+                ResetLootDrive();
+                return;
+            }
+
+            LootKill kill = CompanionLoot.Current;
+            Humanoid humanoid = m_character as Humanoid;
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (kill == null || inventory == null)
+            {
+                CompanionLoot.Finish("companheiro sem inventário");
+                ResetLootDrive();
+                return;
+            }
+
+            if (CompanionLoot.ShouldGiveUp(this, kill, inventory, out string giveUp))
+            {
+                CompanionLoot.Finish(giveUp);
+                ResetLootDrive();
+                return;
+            }
+
+            // O corpo pode escorregar ribanceira abaixo, e saber se ele ainda existe é o que permite
+            // encerrar cedo quando não caiu nada. Sondagem no máximo 1×/s (nunca por frame).
+            CompanionLoot.TrackBody(kill);
+
+            if (_lootTarget != null && !CompanionLoot.IsStillValidTarget(_lootTarget))
+            {
+                _lootTarget = null;
+            }
+
+            if (_lootTarget == null)
+            {
+                _lootScanTimer -= dt;
+                if (_lootScanTimer <= 0f)
+                {
+                    _lootScanTimer = CompanionLoot.ScanInterval;
+                    _lootTarget = CompanionLoot.FindDrop(transform.position, kill, inventory);
+                    if (_lootTarget != null)
+                    {
+                        kill.SawDrop = true;
+                        kill.LastDrop = Time.time;
+
+                        // O item entra no follow do motor nativo: é ele que faz o pathfinding.
+                        base.SetFollowTarget(_lootTarget.gameObject);
+                        _lootTargetSince = Time.time;
+                    }
+                }
+            }
+
+            if (_lootTarget != null)
+            {
+                Vector3 point = _lootTarget.transform.position;
+                ApproachAndWork(dt, point, CompanionLoot.PickupReach, MovementOwner.Loot);
+                if (CompanionLoot.IsWithinReach(transform.position, point))
+                {
+                    PickupLootTarget(humanoid, inventory);
+                }
+                else if (Time.time - _lootTargetSince > LootTargetTimeout)
+                {
+                    // Item que não dá para alcançar (água funda, dentro de uma construção): veta e
+                    // segue para o próximo, em vez de empurrar a parede até estourar o teto de tempo.
+                    DropLootTarget("não consegui chegar ao item", permanent: true);
+                }
+
+                return;
+            }
+
+            // Nada para pegar agora: vai ao ponto do abate e espera os itens saírem do corpo.
+            Vector3 spot = kill.Position;
+            if (CompanionLoot.IsAtSpot(transform.position, spot))
+            {
+                kill.MarkArrived();
+                StopMoving();
+            }
+            else
+            {
+                CompanionLoot.ReportDistance(kill, Vector3.Distance(transform.position, spot));
+                if (CompanionLoot.IsStuck(kill))
+                {
+                    CompanionLoot.Finish($"não consegui chegar ao corpo (a {kill.LastDistance:0.#} m)");
+                    ResetLootDrive();
+                    return;
+                }
+
+                ApproachAndWork(dt, spot, CompanionLoot.ArriveStop, MovementOwner.Loot);
+            }
+
+            if (CompanionLoot.ShouldFinish(kill, out string done))
+            {
+                CompanionLoot.Finish(done);
+                ResetLootDrive();
+            }
+        }
+
+        /// <summary>Pega o item do abate ao alcance da mão (mesmo fluxo do jogador).</summary>
+        private void PickupLootTarget(Humanoid humanoid, Inventory inventory)
+        {
+            if (_lootInteractTimer > 0f || _lootTarget == null)
+            {
+                return;
+            }
+
+            ItemDrop drop = _lootTarget;
+            GameObject go = drop.gameObject;
+
+            if (drop.InTar())
+            {
+                DropLootTarget("item preso no piche", permanent: true);
+                return;
+            }
+
+            // Sem autoridade sobre o item não dá para carregá-lo: pede e tenta de novo no próximo
+            // tick (é o mesmo fluxo do jogador e o que a coleta já faz).
+            ZNetView netView = go.GetComponent<ZNetView>();
+            if (netView != null && netView.IsValid() && !netView.IsOwner())
+            {
+                drop.RequestOwn();
+                StopMoving();
+                return;
+            }
+
+            // Lê o ZDO antes de julgar espaço/peso (o stack real do item está lá).
+            drop.Load();
+            ItemDrop.ItemData item = drop.m_itemData;
+            if (item == null || item.m_shared == null)
+            {
+                DropLootTarget("item sem dados", permanent: true);
+                return;
+            }
+
+            if (!inventory.CanAddItem(item))
+            {
+                DropLootTarget("inventário sem espaço", permanent: false);
+                return;
+            }
+
+            if (CompanionLoot.OverWeight(inventory, item))
+            {
+                DropLootTarget("carga acima do limite", permanent: false);
+                return;
+            }
+
+            // Lido ANTES do Pickup: ele destrói o ItemDrop do mundo.
+            int stack = Mathf.Max(1, item.m_stack);
+            string prefabName = item.m_dropPrefab != null
+                ? Utils.GetPrefabName(item.m_dropPrefab)
+                : Utils.GetPrefabName(go.name);
+
+            _lootInteractTimer = HarvestInteractInterval;
+            _lootPickupFailures = 0;
+
+            // Humanoid.Pickup: valida, coloca no inventário, toca o efeito e destrói o ItemDrop do
+            // mundo. autoequip falso para o companheiro não trocar de arma ao catar um machado.
+            if (!humanoid.Pickup(go, autoequip: false, autoPickupDelay: false))
+            {
+                DropLootTarget("o jogo recusou pegar o item", permanent: false);
+                return;
+            }
+
+            CompanionLoot.NotifyPickedUp(prefabName, stack);
+            _lootTarget = null;
+            _lootScanTimer = 0f;
+        }
+
+        /// <summary>
+        /// Solta o item-alvo do loot. <paramref name="permanent"/> marca o descarte definitivo
+        /// (piche/item sem dados); as falhas que podem passar (espaço/peso) só contam para desistir
+        /// do abate depois de <see cref="LootPickupFailuresBeforeGiveUp"/> tentativas — assim o
+        /// companheiro não fica parado em frente a um item que não cabe.
+        /// </summary>
+        private void DropLootTarget(string reason, bool permanent)
+        {
+            ItemDrop drop = _lootTarget;
+            _lootTarget = null;
+            _lootScanTimer = 0f;
+
+            if (drop == null)
+            {
+                return;
+            }
+
+            if (permanent)
+            {
+                CompanionLoot.MarkSkipped(drop);
+                return;
+            }
+
+            _lootPickupFailures++;
+            if (_lootPickupFailures < LootPickupFailuresBeforeGiveUp)
+            {
+                return;
+            }
+
+            LootKill kill = CompanionLoot.Current;
+            string victim = kill != null ? kill.VictimName : "?";
+            Plugin.Log.LogWarning(
+                $"[ModIA] Loot: não consegui pegar o que '{victim}' deixou ({reason}).");
+            CompanionLoot.Finish($"não consegui pegar ({reason})");
+            ResetLootDrive();
+        }
+
+        /// <summary>Sai da camada de loot e devolve o follow do motor nativo ao jogador.</summary>
+        private void ResetLootDrive()
+        {
+            _lootWasActive = false;
+            _lootTarget = null;
+            _lootScanTimer = 0f;
+            _lootInteractTimer = 0f;
+            _lootTargetSince = 0f;
+            _lootPickupFailures = 0;
+            RestoreFollowTarget();
         }
 
         // ---------------------------------------------------------------------
@@ -1319,15 +1627,15 @@ namespace ModAIValheim.Companion
         /// ferramenta para golpe, distância de interação para itens/colhíveis).
         ///
         /// <para>
-        /// Reivindica o movimento do frame (<see cref="MovementOwner.Harvest"/>): enquanto a coleta
+        /// Reivindica o movimento do frame (<paramref name="owner"/>): enquanto a coleta (ou o loot)
         /// está no comando, a guarda de follow (<see cref="UpdateFollowSafety"/>) não mexe no passo.
         /// Antes de andar, <see cref="CompanionMovement.PrepareStep"/> abre uma porta fechada à frente
         /// (#5) ou desvia/aborta o passo diante de um barranco (#2).
         /// </para>
         /// </summary>
-        private void ApproachAndWork(float dt, Vector3 point, float stopAt)
+        private void ApproachAndWork(float dt, Vector3 point, float stopAt, MovementOwner owner)
         {
-            _movementOwner = MovementOwner.Harvest;
+            _movementOwner = owner;
             LookAt(point);
 
             float distance = Vector3.Distance(point, transform.position);
