@@ -38,6 +38,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.8 | Coleta ampliada: lista curada de materiais (pedra/minérios/colhíveis) + dropdown no menu + mira na rocha + ferramenta fornecida | ✅ |
 | 2.9 | Coleta: correções da auditoria (espera pelos drops, rocha "rachada", tora mais próxima, ferramenta por tier) | ✅ |
 | 2.10 | Movimento/combate: proteção contra queda, portas no caminho, bloqueio/parry e filtro de alvo passivo | ✅ |
+| 2.11 | Coleta: fim do loop de escolher/largar nó (seleção respeita a "coleira" do jogador) + log só na mudança | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -97,3 +98,10 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   salvo `AtacarAnimaisNeutros = true`). Introduz o **dono do movimento por frame**
   (`CompanionMovement`/`MovementOwner`) para coleta, follow e guardas não disputarem o `MoveTo`.
   Ver `docs/audit-vs-offline-companions.md`.
+- **Fase 2.11 (0.3.4)** — **fim do loop infinito da coleta** (bug crítico reportado em jogo): a
+  varredura de nó passou a respeitar a **mesma "coleira" do jogador** que a guarda de distância do
+  `CompanionAI` (antes ela escolhia um nó que a guarda largava no tick seguinte), o nó largado por
+  "jogador se afastou" **não é re-escolhido no mesmo tick** (o companheiro **volta a seguir** na hora
+  e só varre no próximo ciclo) e o log de escolha/largada **só sai quando o evento muda** (10 s de
+  janela por nó+motivo). Também silencia o aviso de `Character.RaiseSkill` para o companheiro domado
+  sem `Tameable` (`CompanionSkillPatches`), que era benigno mas poluía o log.

@@ -41,6 +41,16 @@ namespace ModAIValheim.Companion
         /// <summary>Tecla de dispensar (config <c>Teclas/DismissKey</c>).</summary>
         internal static KeyCode DismissKey => _dismissKey != null ? _dismissKey.Value : KeyCode.H;
 
+        /// <summary>
+        /// True quando <paramref name="character"/> é o corpo do companheiro ativo. É só comparação
+        /// de referências (nenhum <c>GetComponent</c>/varredura): existe para os patches Harmony de
+        /// caminho quente, como o <c>Character.RaiseSkill</c> (chamado a cada golpe do jogo).
+        /// </summary>
+        internal static bool IsActiveCompanion(Character character)
+        {
+            return character != null && _companion != null && character.gameObject == _companion;
+        }
+
         internal static void Configure(ConfigEntry<KeyCode> spawnKey, ConfigEntry<KeyCode> dismissKey)
         {
             _spawnKey = spawnKey;

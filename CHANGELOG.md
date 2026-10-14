@@ -3,6 +3,54 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.3.4] — 2026-10-14
+
+### Corrigido
+- **Loop infinito da coleta (bug crítico, Fase 2.11).** Com o jogador já afastado, o companheiro
+  ficava preso num ciclo de **escolher/largar o mesmo nó** (~300 linhas iguais no log, a cada tick)
+  e **nunca voltava a seguir o jogador**. Eram duas causas somadas:
+  - a **seleção** de nó (`CompanionHarvestScanner.FindBestNode`) só olhava o raio a partir do
+    **companheiro**, enquanto a **guarda** do `CompanionAI` largava o nó pela distância ao
+    **jogador** (`CompanionHarvest.MaxNodeDistanceFromFollowTarget` = `Coleta/RaioVarredura` + 15 m):
+    a varredura escolhia um nó que a guarda rejeitava no tick seguinte. Agora a varredura recebe o
+    **âncora** (posição do jogador) + a **mesma** "coleira" e descarta esses nós (contados no
+    diagnóstico como `longe do jogador`), então seleção e guarda **nunca discordam**;
+  - ao largar por `jogador se afastou do nó`, o código **zerava o timer de varredura** e re-varria no
+    **mesmo tick** — re-escolhendo o mesmo nó. Agora ele **volta a seguir o jogador na hora**
+    (`RestoreFollowTarget`) e só procura nó novo no **próximo ciclo** de varredura;
+  - se há nó do recurso, mas **todos fora da coleira**, a coleta fica **pendente** (a varredura não
+    conta "varredura vazia", então a tarefa **não** é encerrada por isso) e o companheiro **segue o
+    jogador** até voltar para perto de nós (`HarvestPick.LeashRejected`);
+  - sem nó válido (incluindo `prefab não classificado`) o follow do jogador é sempre restaurado.
+- **Spam de log da coleta.** A escolha/largada de nó agora é logada **só quando muda** (mesmo nó +
+  mesmo motivo não se repetem dentro de 10 s — `CompanionHarvest.LogNodeEvent`); antes uma única
+  linha repetia a cada tick.
+
+### Alterado
+- `CompanionHarvestScanner.FindBestNode` ganhou os parâmetros `anchor` (alvo do follow) e
+  `anchorMaxDistance` (a "coleira"; `<= 0` desliga), aplicados na avaliação dos candidatos — e o
+  `HarvestPick` ganhou `LeashRejected` (quantos candidatos ficaram fora da coleira), usado pela IA
+  para pausar em vez de encerrar a tarefa.
+- `CompanionAI.AcquireHarvestNode` monta a âncora a partir de `_followTarget` e usa
+  `CompanionHarvest.MaxNodeDistanceFromFollowTarget` nas duas varreduras (inclusive na repetição por
+  ferramenta de tier maior).
+- Novo helper `CompanionHarvest.LogNodeEvent`/`MakeNodeLogKey` (escolha, largada e rastro).
+- **Silenciado o aviso** `"<nome> is tamed but missing tameable or monster AI script!"`: novo patch
+  `CompanionSkillPatches` (prefixo em `Character.RaiseSkill` que pula **só** o corpo do companheiro).
+  Causa confirmada no decompilado: o companheiro é domado e **não tem** `Tameable` (removido de
+  propósito no prefab), então `Character.RaiseSkill` — chamado pelo golpe equipado a cada machadada
+  (`MeleeAttack` → `m_character.RaiseSkill`) e pelo bloqueio — caía no ramo do aviso. Para um
+  personagem domado sem `Tameable` esse método base é um **no-op** (só loga), então pular o corpo do
+  companheiro não muda nenhum estado do jogo: o aviso é que some. `Player` sobrescreve o método e
+  não passa pelo patch; os demais personagens seguem intactos.
+- Versão do plugin → **0.3.4**.
+
+### Notas
+- **Nada mudou nos comandos, configs ou defaults** — a correção é interna (seleção/estado/log).
+- **Performance:** o filtro novo é um `Vector3.Distance` a mais por candidato (dentro da varredura que
+  já roda a cada 0,5 s, com buffers reaproveitados); o patch de `RaiseSkill` é uma comparação de
+  referências. Nada alocado por frame.
+
 ## [0.3.3] — 2026-10-13
 
 ### Adicionado

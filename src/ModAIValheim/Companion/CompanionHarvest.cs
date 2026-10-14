@@ -34,6 +34,13 @@ namespace ModAIValheim.Companion
         /// <summary>Segundos sem progresso antes de largar o nó atual e procurar outro.</summary>
         internal const float NodeGiveUpSeconds = 7f;
 
+        /// <summary>
+        /// Janela (s) em que um <b>mesmo</b> evento de nó (mesmo nó + mesmo motivo) não é logado de
+        /// novo. Sem isto, um ciclo de escolher/largar o mesmo nó virava ~300 linhas idênticas no
+        /// log (bug do loop da coleta, v0.3.4).
+        /// </summary>
+        internal const float NodeLogRepeatSeconds = 10f;
+
         /// <summary>Intervalo mínimo (s) entre tentativas de golpe em um nó.</summary>
         internal const float StrikeInterval = 0.25f;
 
@@ -339,13 +346,51 @@ namespace ModAIValheim.Companion
 
             if (reason != null)
             {
-                Plugin.Log.LogInfo($"[ModIA] Coleta: nó '{_node.name}' largado ({reason}).");
+                LogNodeEvent(
+                    MakeNodeLogKey("drop", _node, reason),
+                    $"[ModIA] Coleta: nó '{_node.name}' largado ({reason}).");
             }
 
             _node = null;
             _nodeStrikes = 0;
             _nodeLastDistance = -1f;
             _nodeLastRevision = -1L;
+        }
+
+        // ---------------------------------------------------------------------
+        // Log de eventos de nó (anti-spam)
+        // ---------------------------------------------------------------------
+
+        private static string _lastNodeLogKey;
+        private static float _lastNodeLogAt = -999f;
+
+        /// <summary>Chave de log de um evento de nó: identifica o <b>nó</b>, o <b>tipo</b> de evento
+        /// (escolha, largada, rastro) e o <b>motivo</b> — só a repetição do mesmo trio é suprimida.</summary>
+        internal static string MakeNodeLogKey(string kind, GameObject node, string reason)
+        {
+            int id = node != null ? node.GetInstanceID() : 0;
+            return reason != null
+                ? kind + "|" + id + "|" + reason
+                : kind + "|" + id;
+        }
+
+        /// <summary>
+        /// Loga um evento de nó (escolha/largada/rastro) <b>somente quando ele muda</b>: a mesma
+        /// chave (mesmo nó + mesmo motivo) não é logada de novo dentro de
+        /// <see cref="NodeLogRepeatSeconds"/>. É o que impede o log de repetir a mesma linha a cada
+        /// tick quando algo dá errado (o caso do loop da coleta).
+        /// </summary>
+        internal static void LogNodeEvent(string key, string message)
+        {
+            if (key != null && key == _lastNodeLogKey &&
+                Time.time - _lastNodeLogAt < NodeLogRepeatSeconds)
+            {
+                return;
+            }
+
+            _lastNodeLogKey = key;
+            _lastNodeLogAt = Time.time;
+            Plugin.Log.LogInfo(message);
         }
 
         /// <summary>

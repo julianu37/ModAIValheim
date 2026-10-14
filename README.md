@@ -262,6 +262,20 @@ Correções dos itens #2, #5, #6 e #14 da
 > antes (o alvo hostil continua com a prioridade de sempre). As guardas de porta/barranco só agem
 > quando o dono do frame é o follow nativo — nunca brigam com a coleta.
 
+### Coleta "com coleira" (Fase 2.11 · fim do loop)
+
+A coleta é **serviço, não fuga**: o companheiro só trabalha em nós a até
+**`Coleta/RaioVarredura` + 15 m do jogador** (a "coleira", 55 m no padrão). Passando disso ele **larga
+o nó e volta a seguir na hora** — e a **mesma** medida é usada na **escolha** do nó, então ele nunca
+seleciona algo que largaria logo em seguida. Se existirem nós do recurso, mas **todos fora da
+coleira**, a coleta fica **pendente** (não conta como "acabou o recurso") e ele **segue o jogador**;
+ela **retoma sozinha** quando você estiver de novo perto de nós. Sem nenhum nó no raio vale o
+contrato de sempre: **3 varreduras vazias** encerram a tarefa.
+
+Para ele trabalhar mais longe, aumente `Coleta/RaioVarredura` (a coleira acompanha). Antes da 0.3.4
+não existia essa coerência: ele escolhia um nó que a guarda largava no tick seguinte e ficava preso
+num ciclo de escolher/largar o mesmo nó, **sem nunca voltar a seguir** (bug do loop da coleta).
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
@@ -375,6 +389,22 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 4. **Alvo passivo (#14)**: em modo **Aggressive** (`F3`), ande por uma campina com **cervos/javalis**:
    com `Combate/AtacarAnimaisNeutros = false` (padrão) ele **ignora** os passivos e só ataca hostis
    (Greydwarf, esqueleto…). Ligue `AtacarAnimaisNeutros = true` para ele caçar a fauna.
+
+### Teste rápido do fim do loop da coleta (Fase 2.11)
+
+1. **Volta a seguir**: invoque o companheiro (**F1**), inicie a coleta (`modia_gather wood 20` ou
+   **F4**) numa floresta e, assim que ele começar a bater numa árvore/tora, **saia andando para
+   longe** (mais de ~55 m do nó, o raio de varredura + 15 m). Ele deve **largar o nó e voltar a
+   seguir você** — e não ficar preso batendo/largando no mesmo lugar.
+2. **Log sem repetição**: o log (`BepInEx\LogOutput.log`) deve ter **uma** linha
+   `nó '…' largado (jogador se afastou do nó)` (no máximo uma a cada 10 s para o mesmo nó) em vez de
+   centenas de linhas iguais; voltando para perto, ele escolhe um nó novo (`alvo '…'`) normalmente.
+3. **Diagnóstico**: com `Geral/LogDetalhado = true`, a varredura mostra quantos nós foram descartados
+   por estarem `longe do jogador` — é o filtro novo, que é o **mesmo** da guarda de distância.
+4. **Sem aviso de domesticação**: o aviso `"<nome> is tamed but missing tameable or monster AI
+   script!"` não deve mais aparecer no log ao bater nas árvores (era benigno — ver `CHANGELOG` 0.3.4).
+5. **Nada mais mudou**: spawn/dismiss, follow, combate, aparência, hover, menu e persistência seguem
+   iguais; a coleta normal (árvore → tora → madeira, pedra, cascata) continua funcionando.
 
 ---
 

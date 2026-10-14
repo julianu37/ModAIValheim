@@ -153,6 +153,14 @@ namespace ModAIValheim.Companion
         /// </summary>
         public int RequiredTier;
 
+        /// <summary>
+        /// Quantos candidatos do recurso foram descartados <b>só</b> por estarem fora da "coleira"
+        /// do jogador (mais longe do alvo de follow do que o permitido). A IA usa isso para
+        /// <b>pausar</b> a busca (seguindo o jogador) em vez de contar "acabou o recurso" e
+        /// encerrar a tarefa — o recurso existe, quem está longe é o jogador.
+        /// </summary>
+        public int LeashRejected;
+
         /// <summary>Resistências do nó travado por falta de ferramenta (escolhe a melhor da lista).</summary>
         public HitData.DamageModifiers RequiredModifiers;
 
@@ -280,6 +288,7 @@ namespace ModAIValheim.Companion
         private static int s_scanUnderwater;
         private static int s_scanBuild;
         private static int s_scanFar;
+        private static int s_scanFarFromAnchor;
         private static int s_scanNoTool;
         private static int s_scanPrimary;
         private static int s_scanFallback;
@@ -325,13 +334,24 @@ namespace ModAIValheim.Companion
         /// Procura o melhor nó para o recurso pedido. <paramref name="tools"/> são as ferramentas de
         /// golpe do companheiro (tier + dano): servem para estimar golpes e para identificar o que
         /// ele não consegue arranhar. O <see cref="HarvestPick.Reason"/> sempre sai preenchido.
+        ///
+        /// <para>
+        /// <paramref name="anchor"/> é o alvo que o companheiro segue (o jogador) e
+        /// <paramref name="anchorMaxDistance"/> a "coleira" até ele (<c>&lt;= 0</c> desliga o
+        /// filtro). A escolha usa a <b>mesma</b> restrição da guarda do <c>CompanionAI</c>
+        /// (<see cref="CompanionHarvest.MaxNodeDistanceFromFollowTarget"/>): um nó que a guarda
+        /// largaria no tick seguinte não pode ser escolhido — era exatamente isso que fazia a
+        /// coleta entrar em ciclo de escolher/largar e o companheiro nunca voltar a seguir.
+        /// </para>
         /// </summary>
         internal static HarvestPick FindBestNode(
             Vector3 origin,
             string resource,
             float radius,
             bool includeDrops,
-            List<HarvestToolProfile> tools)
+            List<HarvestToolProfile> tools,
+            Vector3 anchor,
+            float anchorMaxDistance)
         {
             HarvestPick pick = default;
             pick.ToolTier = -1;
@@ -359,7 +379,7 @@ namespace ModAIValheim.Companion
             {
                 EvaluateCandidates(
                     s_colliders, Mathf.Min(count, s_colliders.Length), origin, radius, resourceHash,
-                    includeDrops, tools, ref pick);
+                    includeDrops, tools, anchor, anchorMaxDistance, ref pick);
             }
 
             // Buffer cheio: roda uma segunda passada num raio menor, para garantir que os nós
@@ -382,7 +402,7 @@ namespace ModAIValheim.Companion
                 s_scanColliders += fallbackCount;
                 EvaluateCandidates(
                     s_fallbackColliders, Mathf.Min(fallbackCount, s_fallbackColliders.Length), origin,
-                    radius, resourceHash, includeDrops, tools, ref pick);
+                    radius, resourceHash, includeDrops, tools, anchor, anchorMaxDistance, ref pick);
             }
 
             if (pick.Node == null && s_scanNoTool > 0)
@@ -390,6 +410,7 @@ namespace ModAIValheim.Companion
                 pick.NeedsBetterTool = true;
             }
 
+            pick.LeashRejected = s_scanFarFromAnchor;
             pick.Reason = DescribeScan(resource, radius);
 
             if (Plugin.LogDetalhado)
@@ -412,6 +433,8 @@ namespace ModAIValheim.Companion
             int resourceHash,
             bool includeDrops,
             List<HarvestToolProfile> tools,
+            Vector3 anchor,
+            float anchorMaxDistance,
             ref HarvestPick pick)
         {
             for (int i = 0; i < count; i++)
@@ -493,6 +516,16 @@ namespace ModAIValheim.Companion
                 if (distance > radius)
                 {
                     s_scanFar++;
+                    continue;
+                }
+
+                // "Coleira" do jogador (o alvo do follow): a MESMA medida da guarda de distância do
+                // CompanionAI. Sem isto a varredura escolhia um nó que a guarda largava no tick
+                // seguinte (jogador já longe) e a coleta entrava em ciclo de escolher/largar.
+                if (anchorMaxDistance > 0f &&
+                    Vector3.Distance(position, anchor) > anchorMaxDistance)
+                {
+                    s_scanFarFromAnchor++;
                     continue;
                 }
 
@@ -1553,6 +1586,7 @@ namespace ModAIValheim.Companion
             s_scanUnderwater = 0;
             s_scanBuild = 0;
             s_scanFar = 0;
+            s_scanFarFromAnchor = 0;
             s_scanNoTool = 0;
             s_scanPrimary = 0;
             s_scanFallback = 0;
@@ -1582,7 +1616,8 @@ namespace ModAIValheim.Companion
                       $"({s_scanClassified} nó(s) classificados; " +
                       $"{s_scanNoResource} sem o recurso, {s_scanNoYield} sem rendimento, " +
                       $"{s_scanNotHarvestable} esgotado(s), {s_scanBuild} perto de obra, " +
-                      $"{s_scanUnderwater} submerso(s), {s_scanBlacklisted} vetado(s))";
+                      $"{s_scanUnderwater} submerso(s), {s_scanBlacklisted} vetado(s), " +
+                      $"{s_scanFarFromAnchor} longe do jogador)";
             }
 
             s_diag.Length = 0;
@@ -1637,6 +1672,7 @@ namespace ModAIValheim.Companion
                 .Append(", submerso=").Append(s_scanUnderwater)
                 .Append(", perto de obra=").Append(s_scanBuild)
                 .Append(", longe=").Append(s_scanFar)
+                .Append(", longe do jogador=").Append(s_scanFarFromAnchor)
                 .Append(" | escolhido: ");
 
             if (pick.Node == null)

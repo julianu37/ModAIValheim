@@ -30,6 +30,9 @@ namespace ModAIValheim
     /// tora da árvore que acabou de cair e fornece a ferramenta pelo tier exigido pelo nó.
     /// Fase 2.10: correções de movimento/combate da auditoria — proteção contra queda (#2), portas
     /// no caminho (#5), bloqueio/parry (#6) e filtro de alvo passivo/neutro (#14).
+    /// Fase 2.11: correção do loop da coleta — a seleção de nó passou a respeitar a mesma "coleira"
+    /// do jogador que a guarda de distância, o nó largado por "jogador se afastou" não é re-escolhido
+    /// no mesmo tick (o companheiro volta a seguir) e o log de nó só sai quando o evento muda.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -37,7 +40,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.3.3";
+        public const string PluginVersion = "0.3.4";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }

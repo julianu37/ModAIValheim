@@ -804,7 +804,16 @@ namespace ModAIValheim.Companion
                 CompanionHarvest.ClearNode("jogador se afastou do nó");
                 ForgetNode();
                 node = null;
-                _harvestScanTimer = 0f;
+
+                // A "coleira" venceu: o companheiro volta a seguir o jogador AGORA e só procura nó
+                // novo no próximo ciclo de varredura (o timer > 0 faz o passo 6 devolver o follow).
+                //
+                // Zerar o timer aqui (como era antes) re-escolhia o MESMO nó no mesmo tick — a
+                // guarda largava de novo no tick seguinte e a coleta entrava em ciclo: o companheiro
+                // ficava preso batendo/largando longe do jogador, sem nunca voltar a segui-lo, e o
+                // log repetia a mesma linha a cada tick (bug do loop da coleta, v0.3.4).
+                _harvestScanTimer = CompanionHarvest.ScanInterval;
+                RestoreFollowTarget();
             }
 
             // 5) Travou? (não chega, bate e não sai dano, construção no caminho…)
@@ -839,6 +848,8 @@ namespace ModAIValheim.Companion
             {
                 CompanionHarvest.ClearNode("prefab não classificado");
                 ForgetNode();
+                _harvestScanTimer = 0f;
+                RestoreFollowTarget();
                 return;
             }
 
@@ -952,7 +963,8 @@ namespace ModAIValheim.Companion
                     position, CompanionHarvest.ResourceName, CrackedRockRadius);
                 if (cracked != null)
                 {
-                    Plugin.Log.LogInfo(
+                    CompanionHarvest.LogNodeEvent(
+                        CompanionHarvest.MakeNodeLogKey("trace", cracked, kind.ToString()),
                         $"[ModIA] Coleta: '{kind}' trocado por uma cópia no mesmo ponto; " +
                         $"continuando em '{cracked.name}'.");
                     CompanionHarvest.SetNode(cracked);
@@ -969,7 +981,8 @@ namespace ModAIValheim.Companion
                     transform.position, CompanionHarvest.ResourceName, TreeLogFollowRadius);
                 if (log != null)
                 {
-                    Plugin.Log.LogInfo(
+                    CompanionHarvest.LogNodeEvent(
+                        CompanionHarvest.MakeNodeLogKey("trace", log, kind.ToString()),
                         $"[ModIA] Coleta: '{kind}' partido; mirando a tora mais próxima '{log.name}'.");
                     CompanionHarvest.SetNode(log);
                     return log;
@@ -1360,12 +1373,23 @@ namespace ModAIValheim.Companion
             }
 
             CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
+
+            // A varredura usa a MESMA "coleira" da guarda de distância (passo 4 do UpdateHarvest):
+            // assim ela nunca escolhe um nó que a guarda largaria no tick seguinte. É o que impede
+            // o ciclo escolher/largar quando o jogador já se afastou.
+            Vector3 anchor = _followTarget != null ? _followTarget.transform.position : Vector3.zero;
+            float anchorMaxDistance = _followTarget != null
+                ? CompanionHarvest.MaxNodeDistanceFromFollowTarget
+                : 0f;
+
             HarvestPick pick = CompanionHarvestScanner.FindBestNode(
                 transform.position,
                 CompanionHarvest.ResourceName,
                 CompanionHarvest.ScanRadius,
                 CompanionHarvest.CollectDrops,
-                _harvestTools);
+                _harvestTools,
+                anchor,
+                anchorMaxDistance);
 
             // Item #8: há nó do recurso no raio, mas ele exige uma ferramenta de tier maior do que o
             // companheiro tem (ex.: prata/obsidiana com a picareta de chifre). Fornece a MELHOR
@@ -1380,7 +1404,9 @@ namespace ModAIValheim.Companion
                     CompanionHarvest.ResourceName,
                     CompanionHarvest.ScanRadius,
                     CompanionHarvest.CollectDrops,
-                    _harvestTools);
+                    _harvestTools,
+                    anchor,
+                    anchorMaxDistance);
             }
 
             GameObject node = pick.Node;
@@ -1393,6 +1419,19 @@ namespace ModAIValheim.Companion
                     CompanionHarvest.NotifyMissingTool(CompanionHarvest.ResourceName);
                 }
 
+                // Existe nó do recurso, mas todos fora da "coleira" do jogador: a coleta fica
+                // PENDENTE (não conta como "acabou o recurso") e o companheiro segue o jogador —
+                // quando ele voltar para perto de nós, a próxima varredura retoma o trabalho.
+                if (pick.LeashRejected > 0)
+                {
+                    CompanionHarvest.LogNodeEvent(
+                        "leash|" + CompanionHarvest.ResourceName,
+                        $"[ModIA] Coleta: {pick.LeashRejected} nó(s) de " +
+                        $"'{CompanionHarvest.ResourceName}' fora da coleira do jogador; seguindo o " +
+                        "jogador até ele voltar para perto.");
+                    return null;
+                }
+
                 _harvestEmptyScans++;
                 if (_harvestEmptyScans >= HarvestEmptyScansBeforeStop)
                 {
@@ -1400,7 +1439,9 @@ namespace ModAIValheim.Companion
                 }
                 else
                 {
-                    Plugin.Log.LogInfo($"[ModIA] Coleta: {pick.Reason}; procurando de novo.");
+                    CompanionHarvest.LogNodeEvent(
+                        "empty|" + CompanionHarvest.ResourceName,
+                        $"[ModIA] Coleta: {pick.Reason}; procurando de novo.");
                 }
 
                 return null;
@@ -1427,7 +1468,8 @@ namespace ModAIValheim.Companion
                 ? $"~{pick.Hits} golpe(s)"
                 : "interação direta";
 
-            Plugin.Log.LogInfo(
+            CompanionHarvest.LogNodeEvent(
+                CompanionHarvest.MakeNodeLogKey("pick", node, info.Kind.ToString()),
                 $"[ModIA] Coleta: alvo '{node.name}' ({info.Kind}{(pick.Primary ? ", fonte" : ", direto")}), " +
                 $"rende ~{pick.Yield:0.#} '{CompanionHarvest.ResourceName}' em {cost}, " +
                 $"ferramenta '{_harvestTool ?? "atual"}' — {pick.Reason}, " +
