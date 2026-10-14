@@ -3,6 +3,123 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.2] — 2026-10-14
+
+### Adicionado
+- **PESO, DEPÓSITO EM BAÚ e TOOL KEEPER** (Fase 2.14, item #7 — e #11 — da
+  [auditoria](docs/audit-vs-offline-companions.md)). Antes, quando o inventário enchia, a coleta
+  simplesmente **encerrava** ("não consegui pegar o item (inventário cheio?)") e a tarefa morria.
+  Agora o companheiro **respeita um teto de peso**, **leva a carga ao baú** e **volta a trabalhar**.
+  - **Peso (`Companheiro/PesoMaximo`, padrão 300 kg, `0` = sem limite).** Antes de catar/coletar o
+    companheiro soma o peso do item (`ItemData.GetWeight`) ao que já carrega (`Inventory.GetTotalWeight`)
+    e **nunca** passa do teto — vale para a **coleta** (drops do nó e itens no chão), para os
+    **colhíveis** (uma planta sempre solta os itens no chão: colher cheio só desperdiçaria o arbusto) e
+    para o **loot de criatura**. A verificação roda no máximo a cada **0,5 s** (nunca por frame) e a
+    margem é a mesma do jogo (`Inventory.CanAddItem` + peso).
+  - **Depósito em baú (`Companion/CompanionDeposit.cs` + `CompanionAI.UpdateDeposit`).** Ao estourar
+    o peso — ou ao não caber mais nada — o companheiro **não encerra a tarefa**:
+    1. procura o **baú utilizável mais próximo** (`Piece.GetAllPiecesInRadius`, raio
+       `Coleta/RaioBuscaBau`, padrão 30 m) respeitando as regras do jogo: tem de ser `Container` de
+       construção (nunca carroça/navio/lápide/"mochila" de personagem), com `ZNetView` válida, **não**
+       estar em uso (ninguém com ele aberto) e passar no `PrivateArea.CheckAccess` — **a mesma regra
+       das portas** — e, sendo privado, ter sido construído pelo jogador dono;
+    2. **anda até ele** (`MovementOwner.Deposit`: dono único do movimento por frame, com as guardas de
+       porta/barranco do `CompanionMovement`), **deposita** os materiais
+       (`Inventory.MoveItemToThis` → o `Container` salva o conteúdo no ZDO sozinho) e **volta**;
+    3. a **tarefa de coleta continua viva**: o recurso e a quantidade são os mesmos e ele retoma
+       sozinho (o relógio do nó é renovado durante a viagem — ir ao baú é trabalho, não travamento).
+    - **Sem baú no raio:** ele **PAUSA** (segue o jogador) e avisa no HUD
+      (`Companheiro cheio e sem baú por perto: coleta pausada`, rate-limited) — a tarefa **não** é
+      perdida. Assim que houver espaço (você larga/comer algo) ou aparecer um baú, ele **retoma
+      sozinho**.
+    - **O que ele guarda:** materiais, troféus, miudezas e peixes **não equipados** e que **não são
+      comida** (`CompanionInventory.IsStorableResource`). Equipamento, ferramenta, arma, munição,
+      comida e mead ficam com ele — é o que o mantém funcionando.
+    - **Prazos:** teto de 60 s por viagem e 10 s sem reduzir a distância ao baú (parede, água,
+      barranco) — nunca fica vagando.
+  - **Tool keeper (`Companion/CompanionToolKeeper.cs`).** Quando **falta** uma ferramenta de coleta
+    (e **criar** — `Coleta/FornecerFerramentas` — não resolveu: lista sem ferramenta capaz ou opção
+    desligada), ele **procura num baú próximo** a melhor ferramenta que atenda e **vai buscá-la**:
+    - pela **falta** (`needChop`/`needPickaxe`): só procura o tipo que realmente falta — não
+      "empresta" um machado para quem já tem machado e precisa de picareta;
+    - pelo **tier do nó** (item #8): exige `m_toolTier` ≥ mínimo do nó **e** dano efetivo > 0 contra
+      as resistências dele (a mesma conta da escolha de nó), com a pontuação da referência
+      (tier → qualidade → dano → durabilidade) e ferramenta **quebrada descartada**;
+    - **devolve** a ferramenta **emprestada** ao baú de origem (ou o mais próximo com espaço) quando a
+      coleta termina e ele não usa mais — `Coleta/GuardarFerramentaNaoUsada` (padrão `true`) liga o
+      tool keeper inteiro (procurar/emprestar **e** devolver). Ferramenta **criada** pelo mod **nunca**
+      é devolvida (senão o mod a criaria de novo, e de novo).
+    - O empréstimo é o **plano B**: com o padrão (`FornecerFerramentas = true`) ele continua criando a
+      ferramenta como antes — o baú só entra quando a criação não resolve.
+  - **Prioridade preservada:** **combate > coleta > depósito > loot > follow**. Com alvo hostil o
+    companheiro não anda até o baú (a viagem continua viva e tem prazo próprio); com uma viagem em
+    andamento a coleta e o loot **esperam** (o abate volta para a **frente da fila** com o relógio
+    parado, então não "expira" esperando a vez).
+  - **Comando novo `modia_deposit`:** manda o companheiro levar a carga ao baú **agora** (o mesmo
+    caminho de quando ele enche sozinho) — é o atalho de teste, sem esperar o peso estourar.
+  - **`modia_stats` ampliado:** mostra `Carga: x/y kg (limite ...)`, os slots livres, o estado do
+    depósito e as ferramentas emprestadas (`Tool keeper: 1 emprestada(s): PickaxeIron`).
+  - **Menu (Y):** o painel **Coleta** ganhou a linha `Carga: 123/300 kg` (a segunda linha do painel,
+    no lugar do "0 = sem limite" quando existe teto configurado).
+  - **Persistência:** ferramenta emprestada que estiver no inventário entra no snapshot normal
+    (dismiss/morte). Nesse caso o empréstimo é **esquecido** com log — o item é do companheiro agora
+    (o mod não tenta devolvê-lo a um baú depois).
+- Config em **duas seções** (todas em PT-BR, descrições completas no `.cfg`):
+  - **`[Companheiro]`** `PesoMaximo` (300 kg; `0` = sem limite);
+  - **`[Coleta]`** `DepositarAoEncher` (`true`), `RaioBuscaBau` (30 m), `GuardarFerramentaNaoUsada`
+    (`true`).
+- Seção **"Peso, depósito em baú e tool keeper"** no `README` com a receita de teste in-game.
+
+### Alterado
+- `CompanionInventory` ganhou a camada de **peso** (`ConfigureWeight`/`MaxWeight`/`GetWeight`/
+  `WouldExceedWeight`/`IsOverWeight`), os helpers de **depósito** (`IsStorableResource`/
+  `HasStorableResource`/`FindItem`) e o diagnóstico de ferramentas que faltam
+  (`GetMissingHarvestToolKinds`/`HasHarvestTools`).
+- `CompanionAI.UpdateAI` ganhou a camada `UpdateDeposit(dt)` (entre o bloqueio e a coleta) e
+  `UpdateHarvest` ganhou `UpdatePackFull(dt)`, que decide entre **depositar**, **pausar** ou seguir
+  normalmente. `PickupDropNode` passou a checar **espaço e peso antes** de pegar (o
+  `CompanionHarvest.Stop("não consegui pegar o item (inventário cheio?)")` **deixou de existir**) e
+  `HarvestPickableNode` não colhe mais uma planta quando não há onde pôr o que ela solta.
+- `CompanionLoot` respeita o **teto geral de peso** além do teto próprio (`Loot/PesoMaximo`): o teto
+  geral é resolvido pelo **depósito** (o abate volta para a fila e é retomado), o teto do loot
+  continua significando "desista do abate".
+- `CompanionMovement.MovementOwner` ganhou `Deposit` (dono do movimento na viagem ao baú).
+- `CompanionHarvest` ganhou `NotifyBusy()` (renova o relógio do nó sem log, para ir ao baú não contar
+  como travamento) e `NotifyPackFull(reason)` (aviso no HUD, rate-limited).
+- `CompanionManager` cancela a viagem ao baú e "adota" as ferramentas emprestadas no **dismiss** e na
+  **morte**; o `Shutdown` limpa os dois módulos novos.
+- Versão do plugin → **0.4.2**.
+
+### Notas
+- **Referência (MIT, uso livre):** o depósito e o tool keeper espelham a *lógica* de
+  `src/Companions/Jobs/MHR_GatherRules.cs` (`IsOverweight`, `HandleOverweight`, `DropOff`,
+  `PackFull`, `TryMakeRoom`), `src/Companions/Jobs/MHR_ToolKeeper.cs`
+  (`FindBestInChests`, `BestIn`, `Score`, `ChestFor`, `Deposit`, `RequestUnload`) e
+  `src/Companions/Jobs/MHR_Items.cs` (`FindItemByPrefab`, `TransferOne`) + `MHR_Chests`
+  (`Near`/`Usable`/`InUse`/`Open`) do
+  [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn), com
+  atribuição em [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). A implementação aqui é própria
+  (adaptada ao modelo de estados do `CompanionAI`, ao dono do movimento por frame, aos buffers
+  reaproveitados e às seções de config em PT-BR), sem cópia de arquivo.
+- **API confirmada no `assembly_valheim.dll` 1.0.17:** `Container.GetInventory()`/`IsInUse()`/
+  `m_privacy`/`PrivacySetting.Private`, `Inventory.CanAddItem(ItemData, int)`/
+  `MoveItemToThis(Inventory, ItemData)`/`HaveEmptySlot()`/`GetEmptySlots()`/`GetTotalWeight()`,
+  `ItemData.GetWeight()`, `Piece.GetAllPiecesInRadius(Vector3, float, List<Piece>)`/
+  `GetCreator()`, `PrivateArea.CheckAccess(Vector3, float, bool, bool)`,
+  `ZNetView.IsValid()`/`ClaimOwnership()`.
+- **Não usamos `Container.SetInUse`:** ele escreve o ZDO e dispara efeitos com
+  `Player.m_localPlayer.GetZDOID()` (poderia ser `null`); em vez disso apenas **pulamos** baús que já
+  estejam em uso (alguém com ele aberto). O depósito em si não precisa do baú "aberto": o
+  `Inventory` do `Container` é o mesmo objeto e o `Container` salva no ZDO a cada mudança.
+- **Performance:** a varredura de baús (`Piece.GetAllPiecesInRadius` percorre as peças do mundo) só
+  roda ao **iniciar** uma viagem, com espera mínima de 3 s entre tentativas; o peso é verificado a
+  cada 0,5 s; os buffers de peças/colliders são reaproveitados e nada é alocado por frame.
+- **Fora do escopo:** "pilar" de pedra (a referência empilha a pedra no chão perto do nó em vez de
+  levar ao baú) e zonas de casa/base (Fase 2.17) — o baú escolhido é sempre o mais próximo dentro do
+  raio.
+
+---
+
 ## [0.4.1] — 2026-10-14
 
 ### Adicionado

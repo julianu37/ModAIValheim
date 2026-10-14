@@ -45,6 +45,9 @@ namespace ModAIValheim.Companion
         private static ConfigEntry<bool> _provideTools;
         private static ConfigEntry<string> _providedToolPrefabs;
 
+        // Peso máximo do companheiro (Fase 2.14).
+        private static ConfigEntry<float> _maxWeight;
+
         private static bool _visualsInspected;
 
         internal static void Configure(
@@ -79,6 +82,186 @@ namespace ModAIValheim.Companion
         {
             _visualsInspected = false;
             s_missingToolWarned.Clear();
+        }
+
+        // ---------------------------------------------------------------------
+        // Peso / carga (Fase 2.14)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Config do <b>peso máximo</b> do companheiro (Fase 2.14, item #7 da auditoria). Antes de
+        /// catar/coletar o companheiro soma o peso do item ao que já carrega e <b>nunca</b> passa do
+        /// teto; ao estourar ele leva a carga ao baú e retoma a tarefa
+        /// (ver <see cref="CompanionDeposit"/>).
+        /// </summary>
+        internal static void ConfigureWeight(ConfigEntry<float> maxWeight)
+        {
+            _maxWeight = maxWeight;
+
+            Plugin.Log.LogInfo(
+                $"[ModIA] Companheiro: peso máximo = " +
+                $"{(MaxWeight > 0f ? MaxWeight + " kg" : "sem limite")}.");
+        }
+
+        /// <summary>
+        /// Peso máximo (kg) que o companheiro carrega (config <c>Companheiro/PesoMaximo</c>).
+        /// <c>0</c> = <b>sem limite</b> (o jogo não impõe limite de peso a personagens).
+        /// </summary>
+        internal static float MaxWeight => _maxWeight != null ? Mathf.Max(0f, _maxWeight.Value) : 0f;
+
+        /// <summary>Peso total (kg) que o companheiro está carregando.</summary>
+        internal static float GetWeight(Inventory inventory)
+        {
+            return inventory != null ? inventory.GetTotalWeight() : 0f;
+        }
+
+        /// <summary>
+        /// O item <paramref name="item"/> passaria do teto de peso (<c>0</c> = sem limite)? É a
+        /// checagem "nunca pegar o que estoura o teto" — usada antes de catar (coleta, loot e
+        /// pickables).
+        /// </summary>
+        internal static bool WouldExceedWeight(Inventory inventory, ItemDrop.ItemData item)
+        {
+            if (MaxWeight <= 0f || inventory == null)
+            {
+                return false;
+            }
+
+            if (item == null)
+            {
+                return inventory.GetTotalWeight() >= MaxWeight;
+            }
+
+            return inventory.GetTotalWeight() + item.GetWeight() > MaxWeight;
+        }
+
+        /// <summary>O companheiro já está no (ou acima do) teto de peso? (<c>0</c> = sem limite)</summary>
+        internal static bool IsOverWeight(Inventory inventory)
+        {
+            if (MaxWeight <= 0f || inventory == null)
+            {
+                return false;
+            }
+
+            return inventory.GetTotalWeight() >= MaxWeight;
+        }
+
+        /// <summary>
+        /// Item que o companheiro <b>guarda num baú</b>: material, troféu, peixe ou miudeza que
+        /// <b>não</b> está equipado e <b>não</b> é comida. Equipamento, ferramenta, arma, munição,
+        /// comida e mead ficam com ele (é o que o mantém funcionando).
+        /// </summary>
+        internal static bool IsStorableResource(ItemDrop.ItemData item)
+        {
+            if (item == null || item.m_shared == null || item.m_equipped)
+            {
+                return false;
+            }
+
+            if (item.m_shared.m_food > 0f || item.m_shared.m_foodStamina > 0f)
+            {
+                return false;
+            }
+
+            switch (item.m_shared.m_itemType)
+            {
+                case ItemDrop.ItemData.ItemType.Material:
+                case ItemDrop.ItemData.ItemType.Trophy:
+                case ItemDrop.ItemData.ItemType.Misc:
+                case ItemDrop.ItemData.ItemType.Fish:
+                case ItemDrop.ItemData.ItemType.AmmoNonEquipable:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        /// <summary>Existe algo no inventário que possa ser guardado num baú?</summary>
+        internal static bool HasStorableResource(Inventory inventory)
+        {
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (IsStorableResource(items[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// O companheiro tem as duas ferramentas de coleta (algo com dano de <i>corte</i> e algo com
+        /// dano de <i>picareta</i>)? É a mesma régua do <see cref="EnsureHarvestTools"/> — o tool
+        /// keeper (Fase 2.14) só procura num baú quando ainda falta alguma.
+        /// </summary>
+        internal static bool HasHarvestTools(CompanionAI companion)
+        {
+            return GetMissingHarvestToolKinds(companion, out bool needChop, out bool needPickaxe) &&
+                   !needChop && !needPickaxe;
+        }
+
+        /// <summary>
+        /// Quais tipos de ferramenta de coleta <b>faltam</b> ao companheiro: algo com dano de
+        /// <i>corte</i> (machado) e algo com dano de <i>picareta</i>. Devolve <c>false</c> quando não
+        /// há inventário (aí os dois <c>out</c> saem <c>false</c> e quem chamou não age).
+        /// </summary>
+        internal static bool GetMissingHarvestToolKinds(
+            CompanionAI companion,
+            out bool needChop,
+            out bool needPickaxe)
+        {
+            needChop = false;
+            needPickaxe = false;
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            bool hasChop = false;
+            bool hasPickaxe = false;
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (!IsHarvestTool(item))
+                {
+                    continue;
+                }
+
+                HitData.DamageTypes damage = item.m_shared.m_damages;
+                if (damage.m_chop > 0f)
+                {
+                    hasChop = true;
+                }
+
+                if (damage.m_pickaxe > 0f)
+                {
+                    hasPickaxe = true;
+                }
+            }
+
+            needChop = !hasChop;
+            needPickaxe = !hasPickaxe;
+            return true;
+        }
+
+        /// <summary>
+        /// Item do inventário pelo nome do prefab (a busca que o tool keeper e o depósito usam para
+        /// reencontrar um item movido). Devolve <c>null</c> quando não está lá.
+        /// </summary>
+        internal static ItemDrop.ItemData FindItem(Inventory inventory, string prefabName)
+        {
+            return FindInInventory(inventory, prefabName);
         }
 
         // ---------------------------------------------------------------------
@@ -920,7 +1103,7 @@ namespace ModAIValheim.Companion
         /// projétil) e com dano. Cuidado: <c>IsWeapon()</c> do jogo devolve <c>false</c> para
         /// <c>ItemType.Tool</c> — é justamente onde moram as picaretas.
         /// </summary>
-        private static bool IsHarvestTool(ItemDrop.ItemData item)
+        internal static bool IsHarvestTool(ItemDrop.ItemData item)
         {
             if (item == null || item.m_shared == null || !item.IsEquipable() || !item.HavePrimaryAttack())
             {

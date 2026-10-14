@@ -42,7 +42,8 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
-| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina) e perícias do companheiro |
+| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito e ferramentas emprestadas do companheiro |
+| `modia_deposit` | (console, F5) manda o companheiro levar a carga ao **baú** mais próximo agora |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
 
@@ -150,7 +151,9 @@ ou até não haver mais nó no raio.
   exigir **tier maior** (prata/obsidiana), o mod fornece a **melhor ferramenta da lista que atenda**
   (tier ≥ mínimo do nó e dano > 0 contra as resistências dele). Desligue com
   `Coleta/FornecerFerramentas = false`; sem ferramenta capaz, o HUD avisa e o nó **não** vira alvo
-  (o companheiro não fica mais batendo à toa até travar).
+  (o companheiro não fica mais batendo à toa até travar). Se criar não resolver, o **tool keeper**
+  procura a ferramenta num **baú** próximo e vai buscá-la (ver
+  [Peso, depósito em baú e tool keeper](#peso-depósito-em-baú-e-tool-keeper-fase-214)).
 - **Recursos**: a lista curada da tabela abaixo resolve `modia_gather pedra`, `stone`, `Stone`,
   `madeira`, `silex`, `cobre`… Qualquer **item** do jogo continua valendo pelo nome do prefab
   (`Wood`, `Stone`, `Raspberry`, `Resin`…) ou pelo **nome localizado** do item. `modia_gather` sem
@@ -414,17 +417,86 @@ Comida ativa (com o tempo que ainda faltava queimar), resistência e perícias e
 que ele tinha** — e isso vale até entre sessões, se `Companheiro/PersistirEntreSessoes` estiver
 ligado.
 
+---
+
+### Peso, depósito em baú e tool keeper (Fase 2.14)
+
+Até a 0.4.1 a coleta **encerrava** quando o inventário enchia
+(`não consegui pegar o item (inventário cheio?)`). Agora ele tem **peso**, **leva a carga ao baú** e
+**volta a trabalhar** — e o *tool keeper* cuida da ferramenta certa.
+
+#### Peso — ele não carrega o mundo
+
+- Teto configurável em **`Companheiro/PesoMaximo`** (padrão **300 kg**; **`0` = sem limite**). O
+  jogo não impõe limite de peso a personagens: isso é uma escolha de balanceamento do mod.
+- Antes de **catar/coletar** ele soma `ItemData.GetWeight()` ao que já carrega
+  (`Inventory.GetTotalWeight()`) e **nunca** passa do teto — vale para os **drops do nó**, os itens
+  no chão e o **loot de criatura**. A checagem roda a cada **0,5 s** (nunca por frame).
+- **Colhíveis** (framboesa, cogumelo…) também respeitam: a planta sempre solta os itens no chão, então
+  colher cheio só desperdiçaria o arbusto.
+
+#### Depósito — ele vai ao baú e volta
+
+Ao estourar o peso (ou ao não caber mais nada), o companheiro:
+
+1. procura o **baú utilizável mais próximo** (`Coleta/RaioBuscaBau`, padrão **30 m**) — tem de ser um
+   `Container` de construção (nunca carroça/navio/lápide/"mochila" de personagem), com `ZNetView`
+   válida, **não** estar em uso (ninguém com ele aberto) e passar no `PrivateArea.CheckAccess`
+   (**a mesma regra das portas**) e, sendo privado, ter sido construído por **você**;
+2. **anda até ele**, **deposita** os materiais e **volta** — a **tarefa de coleta continua viva** (o
+   recurso e a quantidade são os mesmos) e ele retoma sozinho. Enquanto ele está no baú o relógio do
+   nó é renovado: ir ao baú é **trabalho**, não travamento;
+3. **sem baú no raio**, ele **PAUSA** (volta a te seguir) e avisa no HUD
+   (`Companheiro cheio e sem baú por perto: coleta pausada`) — a tarefa **não** é perdida. Assim que
+   houver espaço (você larga/comer algo) ou aparecer um baú, ele **retoma sozinho**.
+
+**O que ele guarda:** materiais, troféus, miudezas e peixes **não equipados** e que **não são
+comida**. Equipamento, ferramenta, arma, munição, comida e mead ficam com ele — é o que o mantém
+funcionando.
+
+**Limites:** 60 s por viagem e 10 s sem reduzir a distância ao baú (parede, água, barranco) — nunca
+fica vagando.
+
+#### Tool keeper — a ferramenta certa, do baú se preciso
+
+- Quando **falta** uma ferramenta (machado/picareta) e **criar** não resolveu (lista sem ferramenta
+  capaz ou `Coleta/FornecerFerramentas = false`), ele **procura num baú próximo** a melhor ferramenta
+  que atenda e **vai buscá-la**:
+  - pela **falta**: só procura o tipo que **realmente falta** (não empresta um machado para quem já
+    tem machado e precisa de picareta);
+  - pelo **tier do nó** (prata/obsidiana): exige `m_toolTier` ≥ mínimo do nó **e** dano > 0 contra as
+    resistências dele, com pontuação por tier → qualidade → dano → durabilidade (ferramenta
+    **quebrada** é descartada).
+- **`Coleta/GuardarFerramentaNaoUsada`** (padrão `true`) liga o tool keeper: com ele **ligado**, o
+  companheiro **procura/empresta** a ferramenta num baú e **devolve** a emprestada (ao baú de origem
+  ou o mais próximo com espaço) quando a coleta termina. Ferramenta **criada** pelo mod **nunca** é
+  devolvida — senão o mod a criaria de novo, e de novo. Desligado, ele nunca mexe em baú por
+  ferramenta.
+- **Nada muda por padrão:** com `FornecerFerramentas = true` ele continua **criando** a ferramenta como
+  antes; o baú é o **plano B**.
+
+#### Comandos e leitura
+
+| Comando | O que faz |
+|---|---|
+| `modia_deposit` | Manda o companheiro levar a carga ao baú **agora** (o mesmo caminho de quando ele enche) — atalho de teste |
+| `modia_stats` | Mostra `Carga: x/y kg (limite …)`, slots livres, estado do depósito e ferramentas emprestadas |
+
+O menu (**Y**) mostra `Carga: 123/300 kg` no painel **Coleta** quando existe teto configurado.
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
 - **Teclas** — `SpawnKey` (F1), `DismissKey` (H), `CombatModeKey` (F3), `HarvestKey` (F4), `MenuKey` (Y)
-- **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`, `PersistirEntreSessoes`
+- **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`, `PersistirEntreSessoes`,
+  `PesoMaximo`
 - **Aparencia** — `AparenciaPadrao`, `CabeloPrefab`, `BarbaPrefab`, `CorPele`, `CorCabelo`
 - **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`,
   `BloquearAtaques`, `RaioBloqueio`, `TempoBloqueio`
 - **Movimento** — `ProtecaoContraQueda`, `QuedaMaxima`, `DistanciaSondagem`, `AbrirPortas`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
-  `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`
+  `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`,
+  `DepositarAoEncher`, `RaioBuscaBau`, `GuardarFerramentaNaoUsada`
 - **Loot** — `CatarDropsDeCriatura`, `RaioCatar`, `DistanciaMaxima`, `LimiteFila`, `TempoEspera`,
   `TempoMaximo`, `PesoMaximo`
 - **Comida** — `ComerAutomaticamente`, `LimiarHP`, `LimiarStamina`, `IntervaloVerificacao`
@@ -449,7 +521,7 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Hover, Menu...
+│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu...
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -617,6 +689,63 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 6. **Nada mais mudou**: spawn/dismiss, follow, combate, coleta (madeira/pedra/minério), loot,
    movimento, aparência, hover, menu e persistência seguem iguais — com a diferença de que agora ele
    come, cansa e evolui.
+
+### Teste rápido de peso, depósito em baú e tool keeper (Fase 2.14)
+
+**O teste que o item #7 da auditoria pede: encher o inventário e conferir que ele deposita e retoma.**
+
+1. **Preparo (base com baú):** construa um **baú de madeira** perto de onde você vai coletar (a até
+   30 m — `Coleta/RaioBuscaBau`) e deixe-o **vazio**. Para o teste ser rápido, baixe o teto:
+   ```
+   Companheiro/PesoMaximo = 40      # (ou 0 para "sem limite", o comportamento antigo)
+   Coleta/DepositarAoEncher = true
+   Coleta/RaioBuscaBau = 30
+   ```
+   > Dica: quanto **menor** o teto, mais rápido o teste — uma única pilha de madeira já estoura 40 kg.
+   > Com o teto padrão (300 kg) são precisos alguns nós, o que também serve (o `modia_gather wood`
+   > coleta sem limite de quantidade).
+2. **F4** (ou `modia_gather wood`) perto de um baú e de árvores. O log deve mostrar:
+   - `Depósito: o companheiro está cheio; levando a carga para 'Baú de madeira' a 12 m (ele volta a coletar depois).`
+   - `Depósito: fim da viagem ao baú (guardei 3 item(ns)); 3 item(ns) movido(s).`
+   - e o HUD: `Companheiro cheio: levando a carga ao baú (12 m)` → `Carga guardada no baú (3 item(ns))`.
+   - **A coleta NÃO encerra:** depois do depósito ele **volta ao trabalho** sozinho (o log volta a
+     mostrar `Coleta: alvo '...'` e os `+Nx 'Wood'`). Antes da 0.4.2 aparecia
+     `Coleta encerrada (não consegui pegar o item (inventário cheio?))` e a tarefa morria.
+   - Confirme no baú: os materiais estão lá (`modia_inv` mostra o inventário dele **sem** a madeira;
+     abra o baú no jogo e veja o conteúdo).
+3. **Sem baú:** dispense/recolha o baú (ou vá para longe dele) e deixe-o encher de novo. Agora:
+   - `Coleta: o companheiro está cheio e não conseguiu depositar (carga acima do limite); a coleta fica PAUSADA (a tarefa não é perdida).`
+   - HUD: `Companheiro cheio e sem baú por perto: coleta pausada`; ele **para de coletar** e volta a te
+     seguir (não fica batendo na árvore sem pegar nada).
+   - Largue algo da carga dele (`modia_drop Wood 20`) ou aumente `PesoMaximo` em jogo (F1 do BepInEx
+     reconfigura no próximo boot): o log mostra `Coleta: carga e espaço liberados; retomando a coleta.`
+     e ele volta a coletar **sozinho**.
+4. **`modia_deposit` (teste manual):** com o companheiro cheio e perto de um baú, rode `modia_deposit`.
+   Ele deve sair andando até o baú, depositar e voltar a te seguir
+   (`Depósito: o companheiro está cheio; levando a carga para '...' a N m`).
+5. **Carga no `modia_stats` e no menu:** rode `modia_stats` → `Carga: 41/40 kg (limite 40 kg) | 12 item(ns), 20 slot(s) livre(s)`
+   e `Deposito: nenhuma viagem (raio 30 m) | Tool keeper: nenhuma ferramenta emprestada`. Com o menu
+   aberto (**Y**, perto dele) o painel **Coleta** mostra `Carga: 41/40 kg`.
+6. **Tool keeper (a ferramenta vem do baú):** para ele **emprestar** em vez de criar:
+   ```
+   Coleta/FornecerFerramentas = false
+   ```
+   Ponha um **machado** (`AxeStone`) num baú a até 30 m e rode `modia_gather wood`. Como ele não tem
+   machado, o log deve mostrar:
+   - `Tool keeper: encontrei 'AxeStone' no baú 'Baú de madeira' a 8 m.`
+   - `Tool keeper: indo buscar 'AxeStone' no baú '...' a 8 m.` → `Depósito: fim da viagem ao baú (peguei 'AxeStone')`
+   - e ele **volta a coletar** com o machado emprestado.
+   - Ao terminar a coleta (**F4** de novo ou `modia_stop`), com `Coleta/GuardarFerramentaNaoUsada = true`:
+     `Tool keeper: indo devolver ferramenta emprestada no baú '...'` e a ferramenta volta ao baú.
+   - Confira com `modia_stats` → `Tool keeper: 1 emprestada(s): AxeStone` enquanto ela estiver com ele
+     e `nenhuma ferramenta emprestada` depois de devolver.
+7. **Peso no loot:** com `Loot/CatarDropsDeCriatura = true` e o companheiro no teto de peso, abata um
+   javali com ele: o abate volta para a frente da fila
+   (`Loot: 'Javali' de volta à fila (carga cheia (levando ao baú))`), ele deposita e **volta a catar** —
+   o couro não fica no chão.
+8. **Nada mais mudou:** spawn/dismiss, follow, combate, coleta, loot, comida/stamina/skills, movimento,
+   aparência, hover, menu e persistência seguem iguais. Com `Companheiro/PesoMaximo = 0` e
+   `Coleta/DepositarAoEncher = false` o comportamento é **exatamente** o da 0.4.1.
 
 ---
 

@@ -43,10 +43,11 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new StopCommand());
             manager.AddConsoleCommand(new StateCommand());
             manager.AddConsoleCommand(new StatsCommand());
+            manager.AddConsoleCommand(new DepositCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
-                "modia_mode, modia_gather, modia_stop, modia_state, modia_stats.");
+                "modia_mode, modia_gather, modia_stop, modia_state, modia_stats, modia_deposit.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -500,6 +501,88 @@ namespace ModAIValheim.Companion
                             : "[ModIA] Pericias: nenhuma ainda (ele sobe cortando, minerando, " +
                               "lutando, bloqueando e correndo).");
                 }
+
+                // Fase 2.14: carga (peso), depósito em baú e tool keeper.
+                Humanoid humanoid = companion.GetComponent<Humanoid>();
+                Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+                if (inventory != null)
+                {
+                    string limit = CompanionInventory.MaxWeight > 0f
+                        ? $"{CompanionInventory.MaxWeight:0} kg"
+                        : "sem limite";
+                    Report(
+                        context,
+                        $"[ModIA] Carga: {CompanionInventory.GetWeight(inventory):0.#} kg " +
+                        $"(limite {limit}) | {inventory.NrOfItems()} item(ns), " +
+                        $"{inventory.GetEmptySlots()} slot(s) livre(s).");
+                }
+
+                Report(
+                    context,
+                    $"[ModIA] Deposito: {CompanionDeposit.Describe()} | " +
+                    $"Tool keeper: {CompanionToolKeeper.Describe()}.");
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_deposit
+        // ---------------------------------------------------------------------
+
+        private sealed class DepositCommand : ConsoleCommand
+        {
+            public override string Name => "modia_deposit";
+
+            public override string Help =>
+                "Manda o companheiro levar a carga ao bau mais proximo AGORA (o mesmo caminho de " +
+                "quando ele enche sozinho): ele deposita os materiais e volta a seguir voce. " +
+                "Uso: modia_deposit. Serve para testar o deposito sem esperar o peso estourar.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                CompanionAI companion = Current;
+                Humanoid humanoid = companion.GetComponent<Humanoid>();
+                Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+                if (inventory == null)
+                {
+                    Report(context, "[ModIA] O companheiro esta sem inventario.");
+                    return;
+                }
+
+                if (!CompanionInventory.HasStorableResource(inventory))
+                {
+                    Report(
+                        context,
+                        "[ModIA] Nao ha materiais para guardar (equipamento, ferramenta, arma, comida " +
+                        "e municao ficam com o companheiro).");
+                    return;
+                }
+
+                if (CompanionDeposit.TripActive)
+                {
+                    Report(context, "[ModIA] O companheiro ja esta numa viagem ao bau.");
+                    return;
+                }
+
+                if (CompanionDeposit.TryStartDepositTrip(companion, inventory))
+                {
+                    Report(context, "[ModIA] Deposito iniciado: ele esta indo ao bau (acompanhe o log).");
+                    return;
+                }
+
+                Report(
+                    context,
+                    $"[ModIA] Nao consegui iniciar: deposito desligado (Coleta/DepositarAoEncher) ou " +
+                    $"nenhum bau utilizavel num raio de {CompanionDeposit.ChestRadius:0} m.");
             }
 
             public override void Run(string[] args)

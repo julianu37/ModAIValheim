@@ -150,6 +150,37 @@ namespace ModAIValheim.Companion
         /// <summary>Resistência própria do companheiro (correr/atacar/bloquear gastam).</summary>
         private CompanionStamina _stamina;
 
+        // --- Fase 2.14: peso, depósito em baú e tool keeper ---
+        /// <summary>
+        /// True quando a coleta está <b>pausada por falta de espaço/carga</b> (cheio e sem baú
+        /// disponível). A tarefa continua viva: ela volta sozinha quando houver espaço ou baú.
+        /// </summary>
+        private bool _packFullPaused;
+
+        /// <summary>Espera (s) entre tentativas de resolver "cheio" (procurar baú de novo).</summary>
+        private float _packRetryTimer;
+
+        /// <summary>Intervalo (s) entre tentativas de resolver a carga cheia.</summary>
+        private const float PackRetryInterval = 3f;
+
+        /// <summary>Intervalo (s) da verificação de peso/espaço (nunca por frame).</summary>
+        private const float PackCheckInterval = 0.5f;
+
+        /// <summary>Tempo (s) até a próxima verificação de peso/espaço do inventário.</summary>
+        private float _packCheckTimer;
+
+        /// <summary>Resultado da última verificação: o companheiro está no teto de peso?</summary>
+        private bool _packOverWeight;
+
+        /// <summary>Resultado da última verificação: o inventário ainda tem slot livre?</summary>
+        private bool _packHasSpace;
+
+        /// <summary>
+        /// A camada de depósito dirigiu o companheiro no frame anterior (para restaurar o follow
+        /// quando a viagem acabar).
+        /// </summary>
+        private bool _depositWasActive;
+
         // --- Fase 2.10: dono do movimento por frame (#2/#5) e bloqueio/parry (#6) ---
         /// <summary>Quem dirige o movimento neste frame (evita <c>MoveTo</c> concorrendo).</summary>
         private MovementOwner _movementOwner;
@@ -289,6 +320,11 @@ namespace ModAIValheim.Companion
 
             // Fase 2.10 (#6): bloqueio/parry — só ergue o escudo e mira; não dirige movimento.
             UpdateBlocking(dt);
+
+            // Fase 2.14: depósito em baú / tool keeper. Quando existe uma viagem em andamento é ela
+            // quem manda no movimento (o dono do frame passa a ser MovementOwner.Deposit) — a coleta
+            // e o loot só voltam quando a viagem terminar.
+            UpdateDeposit(dt);
 
             // Fase 2.4b: a coleta roda DEPOIS do motor nativo. Quando ela está ativa é ela quem
             // manda no movimento/mira/ataque (a última escrita em SetMoveDir/SetLookDir vence) e
@@ -787,6 +823,245 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
+        // Fase 2.14: depósito em baú (peso/inventário cheio) e tool keeper
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Camada de <b>depósito em baú</b> (Fase 2.14, item #7 da auditoria comparativa vs
+        /// <i>Offline Companions Reborn</i>, MIT — ver <c>THIRD_PARTY_NOTICES.md</c>).
+        ///
+        /// <para>
+        /// Enquanto existe uma viagem em andamento (<see cref="CompanionDeposit.TripActive"/>) é ela
+        /// quem dirige o companheiro: anda até o baú, faz o trabalho (depositar a carga, buscar a
+        /// ferramenta que falta ou devolver a emprestada) e encerra a viagem — a coleta continua
+        /// <b>viva</b> e retoma sozinha no frame seguinte.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Prioridade:</b> o combate vence (com alvo hostil o companheiro não anda até o baú, mas a
+        /// viagem continua viva e tem prazo próprio). Como o dono do movimento por frame passa a ser
+        /// <see cref="MovementOwner.Deposit"/>, a coleta e o loot não brigam pelo passo.
+        /// </para>
+        /// </summary>
+        private void UpdateDeposit(float dt)
+        {
+            if (!CompanionDeposit.TripActive)
+            {
+                if (_depositWasActive)
+                {
+                    _depositWasActive = false;
+
+                    // Só devolve o follow quando a coleta não está no comando (ela usa o nó como
+                    // alvo do motor nativo e o restaura sozinha).
+                    if (!CompanionHarvest.IsActive)
+                    {
+                        RestoreFollowTarget();
+                    }
+                }
+
+                return;
+            }
+
+            _depositWasActive = true;
+
+            if (GetTargetCreature() != null)
+            {
+                StopMoving();
+                return;
+            }
+
+            Humanoid humanoid = m_character as Humanoid;
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (humanoid == null || inventory == null)
+            {
+                CompanionDeposit.Cancel("companheiro sem inventário");
+                return;
+            }
+
+            Container chest = CompanionDeposit.Chest;
+            if (chest == null)
+            {
+                CompanionDeposit.Cancel("o baú sumiu");
+                return;
+            }
+
+            if (CompanionDeposit.IsStuck())
+            {
+                CompanionDeposit.Cancel("não consegui chegar ao baú");
+                return;
+            }
+
+            Vector3 point = chest.transform.position;
+            float distance = Vector3.Distance(point, transform.position);
+            CompanionDeposit.ReportDistance(distance);
+
+            if (distance > CompanionDeposit.UseReach)
+            {
+                ApproachAndWork(dt, point, CompanionDeposit.UseReach, MovementOwner.Deposit);
+                return;
+            }
+
+            StopMoving();
+            LookAt(point);
+
+            switch (CompanionDeposit.TripKind)
+            {
+                case ChestTripKind.Deposit:
+                    WorkAtChestDeposit(inventory);
+                    break;
+
+                case ChestTripKind.FetchTool:
+                    WorkAtChestFetchTool(inventory);
+                    break;
+
+                case ChestTripKind.ReturnTools:
+                    WorkAtChestReturnTools(inventory, chest);
+                    break;
+            }
+        }
+
+        /// <summary>No baú: guarda os materiais e encerra a viagem (a coleta retoma).</summary>
+        private void WorkAtChestDeposit(Inventory inventory)
+        {
+            int moved = CompanionDeposit.DepositResources(inventory);
+            CompanionDeposit.RegisterMoved(moved);
+
+            if (moved > 0)
+            {
+                CompanionHarvest.ShowMessage(
+                    $"Carga guardada no baú ({moved} item(ns))", MessageHud.MessageType.TopLeft);
+            }
+
+            _packFullPaused = false;
+            _packOverWeight = false;
+            _packCheckTimer = 0f; // reavalia peso/espaço já no próximo tick (a carga acabou de mudar)
+            CompanionDeposit.End(moved > 0
+                ? $"guardei {moved} item(ns)"
+                : "não havia nada para guardar");
+        }
+
+        /// <summary>No baú: pega a ferramenta que faltava e encerra a viagem (tool keeper).</summary>
+        private void WorkAtChestFetchTool(Inventory inventory)
+        {
+            string prefab = CompanionDeposit.Prefab;
+            Container chest = CompanionDeposit.Chest;
+
+            bool taken = CompanionDeposit.TakeItemFromChest(inventory, prefab);
+            if (taken)
+            {
+                CompanionToolKeeper.NoteBorrowed(chest, prefab);
+                CompanionDeposit.RegisterMoved(1);
+                CompanionHarvest.ShowMessage(
+                    $"Ferramenta emprestada: {prefab}", MessageHud.MessageType.TopLeft);
+            }
+
+            CompanionDeposit.End(taken ? $"peguei '{prefab}'" : $"não achei '{prefab}' no baú");
+        }
+
+        /// <summary>No baú: devolve as ferramentas emprestadas que não usa mais (tool keeper).</summary>
+        private void WorkAtChestReturnTools(Inventory inventory, Container chest)
+        {
+            int moved = CompanionDeposit.ReturnBorrowedTools(inventory, chest);
+            CompanionDeposit.RegisterMoved(moved);
+            CompanionDeposit.End(moved > 0 ? $"devolvi {moved} ferramenta(s)" : "nada para devolver");
+        }
+
+        /// <summary>
+        /// True quando a coleta deve <b>esperar</b> neste frame por causa de carga/inventário cheio:
+        /// ou existe uma viagem ao baú em andamento, ou o companheiro está pausado (cheio e sem baú).
+        ///
+        /// <para>
+        /// A verificação de peso roda no máximo a cada <see cref="PackCheckInterval"/> (nada de somar
+        /// o peso do inventário por frame) e a varredura de baú tem espera própria. Nada aqui encerra
+        /// a tarefa: ela volta sozinha quando houver espaço (ou um baú).
+        /// </para>
+        /// </summary>
+        private bool UpdatePackFull(float dt)
+        {
+            if (CompanionDeposit.TripActive)
+            {
+                return true;
+            }
+
+            _packCheckTimer -= dt;
+            if (_packCheckTimer <= 0f)
+            {
+                _packCheckTimer = PackCheckInterval;
+
+                Humanoid humanoid = m_character as Humanoid;
+                Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+                _packOverWeight = CompanionInventory.IsOverWeight(inventory);
+                _packHasSpace = inventory != null && inventory.HaveEmptySlot();
+
+                if (_packFullPaused && !_packOverWeight && _packHasSpace)
+                {
+                    _packFullPaused = false;
+                    Plugin.Log.LogInfo("[ModIA] Coleta: carga e espaço liberados; retomando a coleta.");
+                }
+            }
+
+            if (!_packFullPaused && !_packOverWeight)
+            {
+                return false;
+            }
+
+            if (!CompanionDeposit.Enabled)
+            {
+                // Depósito desligado: comportamento antigo (o pickup avisa/falha).
+                return false;
+            }
+
+            _packRetryTimer -= dt;
+            if (_packFullPaused && _packRetryTimer > 0f)
+            {
+                CompanionHarvest.NotifyBusy();
+                RestoreFollowTarget();
+                return true;
+            }
+
+            _packRetryTimer = PackRetryInterval;
+
+            Humanoid body = m_character as Humanoid;
+            Inventory bodyInventory = body != null ? body.GetInventory() : null;
+            if (CompanionDeposit.TryStartDepositTrip(this, bodyInventory))
+            {
+                _packFullPaused = false;
+                return true;
+            }
+
+            if (!_packFullPaused)
+            {
+                _packFullPaused = true;
+                CompanionHarvest.NotifyPackFull(
+                    _packOverWeight ? "carga acima do limite" : "inventário sem espaço");
+            }
+
+            CompanionHarvest.NotifyBusy();
+            RestoreFollowTarget();
+            return true;
+        }
+
+        /// <summary>
+        /// Não caberia (espaço ou peso): tenta levar a carga ao baú; sem baú, <b>pausa</b> a coleta e
+        /// avisa no HUD — a tarefa continua viva (nunca mais o "não consegui pegar o item" encerra a
+        /// coleta, como acontecia antes da Fase 2.14).
+        /// </summary>
+        private void HandlePackFull(Inventory inventory, ItemDrop.ItemData item)
+        {
+            if (CompanionDeposit.Enabled && CompanionDeposit.TryStartDepositTrip(this, inventory))
+            {
+                return;
+            }
+
+            _packFullPaused = true;
+            _packRetryTimer = PackRetryInterval;
+            CompanionHarvest.NotifyBusy();
+            CompanionHarvest.NotifyPackFull(item != null && item.m_dropPrefab != null
+                ? $"não cabe '{Utils.GetPrefabName(item.m_dropPrefab)}'"
+                : "inventário sem espaço/carga");
+        }
+
+        // ---------------------------------------------------------------------
         // Coleta de recursos (Fase 2.4b)
         // ---------------------------------------------------------------------
 
@@ -839,6 +1114,13 @@ namespace ModAIValheim.Companion
             }
 
             CompanionHarvest.ResumeFromCombat();
+
+            // 1b) Fase 2.14: carga/inventário cheio — leva a carga ao baú e VOLTA (a tarefa nunca é
+            //     encerrada por isso). Sem baú por perto ele PAUSA e avisa no HUD.
+            if (UpdatePackFull(dt))
+            {
+                return;
+            }
 
             // 2) Estado dedicado de COLETA DE DROPS (Fase 2.9, itens #1/#9). Depois de destruir um
             //    nó os drops levam alguns frames para nascer: em vez de contar uma varredura vazia na
@@ -995,6 +1277,18 @@ namespace ModAIValheim.Companion
             _dropEmptyScans = 0;
             ForgetNode();
             RestoreFollowTarget();
+
+            // Fase 2.14: a tarefa acabou — zera o estado de "cheio" e devolve ao baú a ferramenta
+            // emprestada que ele não usa mais (tool keeper). A viagem é dirigida pela camada de
+            // depósito, então nada aqui segura o companheiro.
+            _packFullPaused = false;
+            _packRetryTimer = 0f;
+            _packCheckTimer = 0f;
+            _packOverWeight = false;
+
+            Humanoid humanoid = m_character as Humanoid;
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            CompanionDeposit.TryStartReturnTrip(this, inventory);
         }
 
         /// <summary>
@@ -1249,6 +1543,19 @@ namespace ModAIValheim.Companion
                 return;
             }
 
+            // Fase 2.14: uma viagem ao baú está no comando — o loot espera (nada se perde no chão).
+            // O abate volta para a frente da fila com o relógio parado, como na pausa por combate.
+            if (CompanionDeposit.TripActive)
+            {
+                if (_lootWasActive)
+                {
+                    CompanionLoot.Pause("levando a carga ao baú");
+                    ResetLootDrive();
+                }
+
+                return;
+            }
+
             _lootWasActive = true;
             _lootInteractTimer -= dt;
 
@@ -1264,6 +1571,16 @@ namespace ModAIValheim.Companion
             if (kill == null || inventory == null)
             {
                 CompanionLoot.Finish("companheiro sem inventário");
+                ResetLootDrive();
+                return;
+            }
+
+            // Fase 2.14: carga cheia? Leva ao baú e volta — o abate volta para a frente da fila (com
+            // o relógio parado) e é retomado depois do depósito.
+            if (CompanionInventory.IsOverWeight(inventory) &&
+                CompanionDeposit.TryStartDepositTrip(this, inventory))
+            {
+                CompanionLoot.Pause("carga cheia (levando ao baú)");
                 ResetLootDrive();
                 return;
             }
@@ -1725,6 +2042,17 @@ namespace ModAIValheim.Companion
             if (mayNeedTool)
             {
                 CompanionInventory.EnsureHarvestTools(this, CompanionHarvest.ResourceName);
+
+                // Fase 2.14 (tool keeper): criar não resolveu (a lista configurada não tem
+                // ferramenta capaz ou FornecerFerramentas está desligado)? Procura num baú próximo
+                // e vai buscar. A viagem é dirigida pela camada de depósito; a varredura de nós
+                // repete depois dela (sem contar varredura vazia).
+                if (!CompanionInventory.HasHarvestTools(this) &&
+                    CompanionToolKeeper.TryStartFetchForMissingTool(this))
+                {
+                    _harvestScanTimer = CompanionHarvest.ScanInterval;
+                    return null;
+                }
             }
 
             CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
@@ -1749,19 +2077,32 @@ namespace ModAIValheim.Companion
             // Item #8: há nó do recurso no raio, mas ele exige uma ferramenta de tier maior do que o
             // companheiro tem (ex.: prata/obsidiana com a picareta de chifre). Fornece a MELHOR
             // ferramenta da lista configurada que atenda ao nó e repete a varredura UMA vez.
-            if (pick.Node == null && pick.NeedsBetterTool && pick.RequiredTier >= 0 &&
-                CompanionInventory.EnsureHarvestToolForNode(
-                    this, CompanionHarvest.ResourceName, pick.RequiredModifiers, pick.RequiredTier))
+            if (pick.Node == null && pick.NeedsBetterTool && pick.RequiredTier >= 0)
             {
-                CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
-                pick = CompanionHarvestScanner.FindBestNode(
-                    transform.position,
-                    CompanionHarvest.ResourceName,
-                    CompanionHarvest.ScanRadius,
-                    CompanionHarvest.CollectDrops,
-                    _harvestTools,
-                    anchor,
-                    anchorMaxDistance);
+                bool provided = CompanionInventory.EnsureHarvestToolForNode(
+                    this, CompanionHarvest.ResourceName, pick.RequiredModifiers, pick.RequiredTier);
+
+                if (provided)
+                {
+                    CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
+                    pick = CompanionHarvestScanner.FindBestNode(
+                        transform.position,
+                        CompanionHarvest.ResourceName,
+                        CompanionHarvest.ScanRadius,
+                        CompanionHarvest.CollectDrops,
+                        _harvestTools,
+                        anchor,
+                        anchorMaxDistance);
+                }
+                else if (CompanionToolKeeper.TryStartFetchForNode(
+                             this, pick.RequiredTier, pick.RequiredModifiers))
+                {
+                    // Fase 2.14 (tool keeper): criar não resolveu, mas um baú próximo tem a
+                    // ferramenta do tier — a camada de depósito vai buscá-la e a varredura repete
+                    // depois dela.
+                    _harvestScanTimer = CompanionHarvest.ScanInterval;
+                    return null;
+                }
             }
 
             GameObject node = pick.Node;
@@ -1945,6 +2286,18 @@ namespace ModAIValheim.Companion
                 return;
             }
 
+            // Fase 2.14: a planta SEMPRE solta os itens no chão (Pickable.RPC_Pick → Drop), então
+            // colher sem espaço/carga só desperdiçaria o arbusto: trata como "cheio" (deposita ou
+            // pausa) e volta depois.
+            Inventory inventory = humanoid.GetInventory();
+            if (inventory != null &&
+                (CompanionInventory.IsOverWeight(inventory) || !inventory.HaveEmptySlot()))
+            {
+                _harvestInteractTimer = HarvestInteractInterval;
+                HandlePackFull(inventory, null);
+                return;
+            }
+
             _harvestInteractTimer = HarvestInteractInterval;
 
             // Mesma sequência do jogador colhendo: vira para o alvo, toca a animação de interação e
@@ -1990,9 +2343,37 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            int stack = drop.m_itemData != null ? Mathf.Max(1, drop.m_itemData.m_stack) : 1;
-            string prefabName = drop.m_itemData != null && drop.m_itemData.m_dropPrefab != null
-                ? Utils.GetPrefabName(drop.m_itemData.m_dropPrefab)
+            // Lê o ZDO antes de julgar espaço/peso (o stack real do item está lá). O Humanoid.Pickup
+            // faz o mesmo Load internamente, então ler aqui não muda o que o jogo vê.
+            drop.Load();
+            ItemDrop.ItemData item = drop.m_itemData;
+            if (item == null || item.m_shared == null)
+            {
+                ReleaseDropOrNode(node, "item sem dados");
+                return;
+            }
+
+            Inventory inventory = humanoid.GetInventory();
+            if (inventory == null)
+            {
+                ReleaseDropOrNode(node, "companheiro sem inventário");
+                return;
+            }
+
+            // Fase 2.14: espaço e peso ANTES de pegar. Não cabendo, a tarefa NÃO encerra (era o
+            // "não consegui pegar o item (inventário cheio?)" que matava a coleta): o companheiro
+            // leva a carga ao baú e volta, ou pausa (se não houver baú).
+            if (!inventory.CanAddItem(item, item.m_stack) ||
+                CompanionInventory.WouldExceedWeight(inventory, item))
+            {
+                _harvestInteractTimer = HarvestInteractInterval;
+                HandlePackFull(inventory, item);
+                return;
+            }
+
+            int stack = Mathf.Max(1, item.m_stack);
+            string prefabName = item.m_dropPrefab != null
+                ? Utils.GetPrefabName(item.m_dropPrefab)
                 : Utils.GetPrefabName(node.name);
 
             _harvestInteractTimer = HarvestInteractInterval;
@@ -2002,7 +2383,7 @@ namespace ModAIValheim.Companion
             // ferramenta de coleta no meio do trabalho.
             if (!humanoid.Pickup(node, autoequip: false, autoPickupDelay: false))
             {
-                CompanionHarvest.Stop("não consegui pegar o item (inventário cheio?)");
+                HandlePackFull(inventory, item);
                 return;
             }
 

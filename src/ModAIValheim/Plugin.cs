@@ -41,6 +41,11 @@ namespace ModAIValheim
     /// resistência própria que importa (correr/nadar/atacar/bloquear gastam; sem stamina ele anda em
     /// vez de correr) e as habilidades evoluem com o uso (o patch de Character.RaiseSkill passou a
     /// entregar o ganho para o companheiro em vez de só silenciar o aviso do jogo).
+    /// Fase 2.14: PESO, DEPÓSITO EM BAÚ e TOOL KEEPER — o companheiro respeita um teto de peso
+    /// (Companheiro/PesoMaximo), e ao encher NÃO encerra a tarefa: leva a carga ao baú mais próximo,
+    /// deposita e volta a coletar (ou pausa e avisa, se não houver baú). O tool keeper busca num baú
+    /// a ferramenta que faltar (além de criar, como já fazia) e devolve a emprestada quando não usa
+    /// mais.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -48,7 +53,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.1";
+        public const string PluginVersion = "0.4.2";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -102,6 +107,12 @@ namespace ModAIValheim
         private ConfigEntry<string> _harvestLayers;
         private ConfigEntry<bool> _harvestProvideTools;
         private ConfigEntry<string> _harvestProvidedTools;
+
+        // Peso, depósito em baú e tool keeper (Fase 2.14).
+        private ConfigEntry<float> _maxWeight;
+        private ConfigEntry<bool> _depositWhenFull;
+        private ConfigEntry<float> _chestSearchRadius;
+        private ConfigEntry<bool> _storeUnusedTool;
 
         // Loot de criatura abatida pelo companheiro (Fase 2.12).
         private ConfigEntry<bool> _lootEnabled;
@@ -191,6 +202,17 @@ namespace ModAIValheim
                 "FECHAR E ABRIR O JOGO. O estado em memoria (dismiss H -> invocar F1) funciona " +
                 "sempre, independente desta opcao. Desligada, cada sessao comeca com o loadout " +
                 "padrao. Use 'modia_state clear' para esquecer o companheiro guardado.");
+
+            _maxWeight = Config.Bind(
+                "Companheiro",
+                "PesoMaximo",
+                300f,
+                "Peso maximo em kg que o companheiro aceita carregar (0 = sem limite). Antes de " +
+                "catar/coletar ele soma o peso do item ao que ja carrega e NUNCA passa do teto; ao " +
+                "estourar, ele leva a carga ao bau mais proximo, deposita e volta a tarefa (ver " +
+                "Coleta/DepositarAoEncher). O jogo nao tem limite de peso para personagens, entao " +
+                "este teto e uma escolha de balanceamento do mod (padrao 300 kg, perto do que um " +
+                "jogador carrega com a armadura de ferro).");
 
             // Aparencia padrão do corpo de viking (Fase 2.3b).
             _appearanceEnabled = Config.Bind(
@@ -410,6 +432,38 @@ namespace ModAIValheim
                 "corte, picareta = dano de picareta) que faltar e criada. Quando o no escolhido " +
                 "exige um tier maior (prata/obsidiana), o mod cria a MELHOR da lista que atenda " +
                 "(ex.: PickaxeIron). Padrao: AxeStone,PickaxeAntler,PickaxeIron.");
+
+            // Peso, depósito em baú e tool keeper (Fase 2.14, item #7 da auditoria).
+            _depositWhenFull = Config.Bind(
+                "Coleta",
+                "DepositarAoEncher",
+                true,
+                "Se true (padrao), ao ficar cheio (peso ou inventario sem espaco) o companheiro NAO " +
+                "encerra a tarefa: procura o bau utilizavel mais proximo (respeitando area privada, " +
+                "como faz com as portas), anda ate ele, deposita os materiais e VOLTA a coletar o " +
+                "mesmo recurso/quantidade. Sem bau no raio ele PAUSA e avisa no HUD (a tarefa " +
+                "continua viva). Desligado, o comportamento antigo volta: ele para de pegar o que " +
+                "nao cabe e a coleta encerra por varredura vazia.");
+
+            _chestSearchRadius = Config.Bind(
+                "Coleta",
+                "RaioBuscaBau",
+                30f,
+                "Raio em metros (a partir do companheiro) em que ele procura um bau para depositar " +
+                "a carga ou pegar/devolver ferramenta (5 a 100). A varredura roda so ao iniciar uma " +
+                "viagem e tem espera minima entre tentativas (nunca por frame).");
+
+            _storeUnusedTool = Config.Bind(
+                "Coleta",
+                "GuardarFerramentaNaoUsada",
+                true,
+                "Liga o TOOL KEEPER (ferramenta no bau). Se true (padrao), a ferramenta que o " +
+                "companheiro EMPRESTOU de um bau volta para o bau de origem (ou o mais proximo com " +
+                "espaco) quando a coleta termina e ele nao precisa mais dela - e, quando ele nao tem " +
+                "a ferramenta que o no exige e criar nao resolveu (Coleta/FornecerFerramentas " +
+                "desligado ou lista sem ferramenta capaz), ele procura num bau proximo e vai busca-la. " +
+                "Ferramenta CRIADA pelo mod nunca e devolvida - senao o mod a criaria de novo, e de " +
+                "novo. Desligado, o companheiro nunca mexe em bau por ferramenta.");
 
             // Loot de criatura abatida pelo companheiro (Fase 2.12, item #4 da auditoria).
             _lootEnabled = Config.Bind(
@@ -666,6 +720,11 @@ namespace ModAIValheim
 
             // Ferramenta de coleta fornecida quando falta (Fase 2.8).
             CompanionInventory.ConfigureHarvestTools(_harvestProvideTools, _harvestProvidedTools);
+
+            // Peso, depósito em baú e tool keeper (Fase 2.14, item #7 da auditoria).
+            CompanionInventory.ConfigureWeight(_maxWeight);
+            CompanionDeposit.Configure(_depositWhenFull, _chestSearchRadius);
+            CompanionToolKeeper.Configure(_storeUnusedTool);
 
             // Loot de criatura abatida pelo companheiro (Fase 2.12, item #4 da auditoria).
             CompanionLoot.Configure(

@@ -139,6 +139,8 @@ namespace ModAIValheim.Companion
             CompanionHarvest.Shutdown();
             CompanionLoot.Shutdown();
             CompanionMovement.Shutdown();
+            CompanionDeposit.Shutdown();
+            CompanionToolKeeper.Shutdown();
         }
 
         private static void Spawn()
@@ -279,6 +281,12 @@ namespace ModAIValheim.Companion
             CompanionHarvest.Stop("companheiro dispensado");
             CompanionLoot.Shutdown();
 
+            // Fase 2.14: cancela uma viagem ao baú e "adota" a ferramenta emprestada (ela está no
+            // inventário do companheiro, que acabou de ir para o snapshot — o mod não pode tentar
+            // devolvê-la a um baú depois).
+            CompanionDeposit.Cancel("companheiro dispensado");
+            CompanionToolKeeper.ForgetBorrowed("companheiro dispensado");
+
             Plugin.Log.LogInfo("[ModIA] Companheiro dispensado.");
             ShowMessage("Companheiro dispensado.");
         }
@@ -391,6 +399,12 @@ namespace ModAIValheim.Companion
             _companion = null;
             CompanionHarvest.Stop("companheiro morreu");
             CompanionLoot.Shutdown();
+
+            // Fase 2.14: mesma regra do dismiss — a viagem ao baú morre com ele e a ferramenta
+            // emprestada fica com o companheiro (ela está no snapshot).
+            CompanionDeposit.Cancel("companheiro morreu");
+            CompanionToolKeeper.ForgetBorrowed("companheiro morreu");
+
             ShowMessage("Seu companheiro morreu! Os itens dele ficaram guardados (F1 invoca de novo).");
         }
 

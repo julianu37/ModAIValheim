@@ -467,6 +467,44 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
+        /// Renova o relógio de progresso do nó <b>sem log</b>. Usado pela Fase 2.14 quando o
+        /// companheiro está legitimamente fora do nó (levando a carga ao baú, buscando ferramenta):
+        /// é trabalho, não travamento — sem isso o nó seria vetado por "sem progresso em 7 s"
+        /// enquanto ele estivesse no baú.
+        /// </summary>
+        internal static void NotifyBusy()
+        {
+            if (_node != null)
+            {
+                _nodeLastProgressAt = Time.time;
+            }
+        }
+
+        /// <summary>Momento do último aviso de "carga cheia" no HUD (rate-limited).</summary>
+        private static float _lastFullWarnAt = -999f;
+
+        /// <summary>
+        /// Avisa no HUD que o companheiro está <b>cheio</b> e não conseguiu resolver (não achou baú,
+        /// ou o depósito está desligado). Rate-limited (5 s) e a coleta <b>pausa</b> em vez de
+        /// encerrar: a tarefa continua viva e volta sozinha quando houver espaço.
+        /// </summary>
+        internal static void NotifyPackFull(string reason)
+        {
+            if (Time.time - _lastFullWarnAt < 5f)
+            {
+                return;
+            }
+
+            _lastFullWarnAt = Time.time;
+            Plugin.Log.LogWarning(
+                $"[ModIA] Coleta: o companheiro está cheio e não conseguiu depositar ({reason}); " +
+                "a coleta fica PAUSADA (a tarefa não é perdida).");
+            ShowMessage(
+                "Companheiro cheio e sem baú por perto: coleta pausada",
+                MessageHud.MessageType.TopLeft);
+        }
+
+        /// <summary>
         /// True quando vale desistir do nó atual (não chega, travou, ou a ferramenta não faz dano).
         /// <paramref name="why"/> descreve o motivo para o log.
         /// </summary>

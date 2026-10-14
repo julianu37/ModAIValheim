@@ -94,6 +94,9 @@ namespace ModAIValheim.Companion
         private const string TokenHarvestInactive = "$modia_menu_harvest_inactive";
         private const string TokenNoLimit = "$modia_menu_no_limit";
 
+        /// <summary>Carga (peso) do companheiro — Fase 2.14.</summary>
+        private const string TokenLoad = "$modia_menu_load";
+
         private const string TokenKeys = "$modia_menu_keys";
         private const string TokenKeySpawn = "$modia_menu_key_spawn";
         private const string TokenKeyDismiss = "$modia_menu_key_dismiss";
@@ -145,6 +148,7 @@ namespace ModAIValheim.Companion
             { TokenHarvestActive, "Coletando" },
             { TokenHarvestInactive, "Parada" },
             { TokenNoLimit, "0 = sem limite" },
+            { TokenLoad, "Carga" },
 
             { TokenKeys, "Teclas" },
             { TokenKeySpawn, "Invocar" },
@@ -958,8 +962,34 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            _harvestStatusText.text = HarvestStateText() +
-                (CompanionHarvest.IsActive ? string.Empty : "\n" + Text(TokenNoLimit));
+            // Fase 2.14: a segunda linha do painel mostra a CARGA (peso) quando existe teto
+            // configurado — é ela que faz o companheiro ir ao baú. Sem teto, mantém o "0 = sem
+            // limite" (o rótulo tem duas linhas; nunca mostramos as duas juntas).
+            string second = LoadLine() ?? (CompanionHarvest.IsActive ? string.Empty : "\n" + Text(TokenNoLimit));
+            _harvestStatusText.text = HarvestStateText() + second;
+        }
+
+        /// <summary>Linha "Carga: 123/300 kg" (ou null quando não há teto de peso configurado).</summary>
+        private static string LoadLine()
+        {
+            if (CompanionInventory.MaxWeight <= 0f)
+            {
+                return null;
+            }
+
+            CompanionAI companion = CompanionManager.ActiveCompanion;
+            Humanoid humanoid = companion != null ? companion.GetComponent<Humanoid>() : null;
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return null;
+            }
+
+            return "\n" + string.Format(
+                "{0}: {1:0.#}/{2:0} kg",
+                Text(TokenLoad),
+                CompanionInventory.GetWeight(inventory),
+                CompanionInventory.MaxWeight);
         }
 
         private static void RefreshKeys()

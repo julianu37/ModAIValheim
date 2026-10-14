@@ -68,3 +68,15 @@ SOFTWARE.
 >   implementação no ModIA é própria (`CompanionFood`/`CompanionStamina`/`CompanionSkills` +
 >   `CompanionStaminaPatches`/`CompanionSkillPatches`, adaptados ao modelo de estados do `CompanionAI`,
 >   ao snapshot em JSON do `CompanionStateStore` e às seções de config em PT-BR), sem cópia de arquivo.
+> - **Fase 2.14 (v0.4.2)** — **peso, depósito em baú e tool keeper** seguem a lógica de
+>   `src/Companions/Jobs/MHR_GatherRules.cs` (`IsOverweight`, `HandleOverweight`, `DropOff`,
+>   `PackFull`, `TryMakeRoom`), `src/Companions/Jobs/MHR_ToolKeeper.cs` (`FindBestInChests`, `BestIn`,
+>   `Score`, `ChestFor`, `Deposit`, `RequestUnload`, `UnloadList`) e `src/Companions/Jobs/MHR_Items.cs`
+>   (`FindItemByPrefab`, `TransferOne`), além das regras de baú de `MHR_Chests`
+>   (`Near`/`Usable`/`InUse`/`Open`) e do fluxo de depósito pendente de
+>   `src/Companions/AI/CompanionAI.cs` (`SetPendingDeposit`/`CancelPendingDeposit`): teto de peso com
+>   `Inventory.GetTotalWeight()`, procura do baú utilizável mais próximo dentro do raio, viagem até o
+>   baú com depósito e retomada da tarefa (ou pausa, quando não há baú), e empréstimo/devolução de
+>   ferramenta por `m_toolTier`. A implementação no ModIA é própria (`CompanionDeposit` +
+>   `CompanionToolKeeper` + a camada `CompanionAI.UpdateDeposit`, adaptados ao modelo de estados, ao
+>   dono do movimento por frame e aos buffers reaproveitados), sem cópia de arquivo.

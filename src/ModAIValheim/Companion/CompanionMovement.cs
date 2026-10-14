@@ -28,6 +28,13 @@ namespace ModAIValheim.Companion
         /// companheiro). Só existe quando não há tarefa de coleta ativa.
         /// </summary>
         Loot,
+
+        /// <summary>
+        /// A camada de <b>depósito em baú</b> (Fase 2.14): o companheiro está indo/voltando de um
+        /// baú para levar a carga (peso/inventário cheio) ou buscar/devolver uma ferramenta
+        /// (tool keeper). Vence a coleta enquanto está ativa (a tarefa continua viva e volta depois).
+        /// </summary>
+        Deposit,
     }
 
     /// <summary>

@@ -41,6 +41,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.11 | Coleta: fim do loop de escolher/largar nó (seleção respeita a "coleira" do jogador) + log só na mudança | ✅ |
 | 2.12 | Loot: catar os drops das criaturas abatidas pelo companheiro (patch em `Character.OnDeath` + estado de loot) | ✅ |
 | 2.13 | **Membro da equipe**: comida (come sozinho do inventário), resistência (stamina) e habilidades que evoluem | ✅ |
+| 2.14 | **Peso, depósito em baú e tool keeper**: teto de peso, ao encher leva a carga ao baú e retoma (ou pausa), ferramenta emprestada/devolvida do baú | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -132,3 +133,22 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   jogador enfraqueceria o companheiro até ele treinar muito). Comida, stamina e perícias entram no **snapshot** (campos aditivos) e o console ganhou
   `modia_stats`. A coleta ganhou `CompanionHarvest.NotifyWaiting`: esperar stamina **não** é
   travamento (o nó não é vetado).
+- **Fase 2.14 (0.4.2)** — **peso, depósito em baú e tool keeper** (itens #7 e #11 da auditoria). O
+  companheiro ganhou **teto de peso** (`Companheiro/PesoMaximo`, padrão 300 kg, `0` = sem limite):
+  antes de catar/coletar ele soma o peso do item (`ItemData.GetWeight`) ao que já carrega
+  (`Inventory.GetTotalWeight`) e **nunca** passa do teto — vale para os drops do nó, os colhíveis e o
+  **loot de criatura** (que passou a respeitar também o teto geral). Ao encher, a coleta **não
+  encerra mais** (`não consegui pegar o item (inventário cheio?)` deixou de existir): o novo
+  `CompanionDeposit` procura o **baú utilizável mais próximo** (`Piece.GetAllPiecesInRadius`,
+  `Coleta/RaioBuscaBau` 30 m) com as regras do jogo (Container de `Piece`, `ZNetView` válida, não
+  estar em uso, `PrivateArea.CheckAccess` como nas portas, privado só se for do jogador),
+  **anda até ele** (`MovementOwner.Deposit`), **deposita** os materiais (`Inventory.MoveItemToThis`;
+  equipamento/ferramenta/arma/comida/munição ficam com ele) e **volta** — a tarefa continua viva e o
+  relógio do nó é renovado durante a viagem (ir ao baú é trabalho, não travamento). **Sem baú** ele
+  **PAUSA** e avisa no HUD (a tarefa não é perdida) e **retoma sozinho** quando houver espaço.
+  Prioridade **combate > coleta > depósito > loot > follow** (o abate volta para a frente da fila com
+  o relógio parado). O **tool keeper** (`CompanionToolKeeper`) busca num baú a ferramenta que
+  **falta** (só o tipo que falta) ou a que atende ao **tier do nó** (tier ≥ mínimo e dano > 0 contra
+  as resistências, pontuação por tier/qualidade/dano/durabilidade, quebrada descartada) e **devolve**
+  a emprestada quando a coleta termina (`Coleta/GuardarFerramentaNaoUsada`) — ferramenta **criada**
+  nunca é devolvida. Console ganhou `modia_deposit` e o `modia_stats` mostra carga/depósito/empréstimos.

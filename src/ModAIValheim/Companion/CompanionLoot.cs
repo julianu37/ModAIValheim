@@ -690,10 +690,24 @@ namespace ModAIValheim.Companion
             return false;
         }
 
-        /// <summary>O item passaria do teto de peso configurado? (<c>0</c> = sem limite)</summary>
+        /// <summary>
+        /// O item passaria do teto de peso configurado? (<c>0</c> = sem limite). Desde a Fase 2.14
+        /// também respeita o teto <b>geral</b> do companheiro (<c>Companheiro/PesoMaximo</c>): o
+        /// limite do loot é um teto <i>extra</i>, não um substituto.
+        /// </summary>
         internal static bool OverWeight(Inventory inventory, ItemDrop.ItemData item)
         {
-            if (MaxWeight <= 0f || inventory == null || item == null)
+            if (inventory == null || item == null)
+            {
+                return false;
+            }
+
+            if (CompanionInventory.WouldExceedWeight(inventory, item))
+            {
+                return true;
+            }
+
+            if (MaxWeight <= 0f)
             {
                 return false;
             }
@@ -701,7 +715,11 @@ namespace ModAIValheim.Companion
             return inventory.GetTotalWeight() + item.GetWeight() > MaxWeight;
         }
 
-        /// <summary>O companheiro já está acima do teto de peso? (<c>0</c> = sem limite)</summary>
+        /// <summary>
+        /// O companheiro já está acima do teto <b>do loot</b>? (<c>0</c> = sem limite). O teto geral
+        /// do companheiro não entra aqui: quando é ele que estoura, quem resolve é o depósito em baú
+        /// (<see cref="CompanionDeposit"/>), não o abandono do abate.
+        /// </summary>
         internal static bool IsOverWeight(Inventory inventory)
         {
             if (MaxWeight <= 0f || inventory == null)
