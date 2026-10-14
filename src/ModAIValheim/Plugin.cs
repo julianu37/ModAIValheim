@@ -22,6 +22,9 @@ namespace ModAIValheim
     /// Fase 2.7: persistência do companheiro — ao dispensar (H), ao morrer e no fim do mundo o NPC
     /// é fotografado; a próxima invocação (F1) devolve o mesmo companheiro (itens, equipamento,
     /// aparência e modo), com opção de guardar o estado em disco entre sessões.
+    /// Fase 2.8: coleta ampliada — lista curada de materiais (madeira, pedra, minérios, colhíveis),
+    /// dropdown de recurso no menu, mira na superfície das rochas e fornecimento automático da
+    /// ferramenta de coleta (machado/picareta) quando falta.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -29,7 +32,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.3.0";
+        public const string PluginVersion = "0.3.1";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -72,6 +75,8 @@ namespace ModAIValheim
         private ConfigEntry<bool> _harvestPauseOnCombat;
         private ConfigEntry<bool> _harvestCollectDrops;
         private ConfigEntry<string> _harvestLayers;
+        private ConfigEntry<bool> _harvestProvideTools;
+        private ConfigEntry<string> _harvestProvidedTools;
 
         // Interface (Fase 2.6a).
         private ConfigEntry<bool> _hoverHints;
@@ -285,6 +290,24 @@ namespace ModAIValheim
                 "Camadas varridas na busca de nos (separadas por virgula). Ajuste se algum " +
                 "recurso nao for encontrado (ex.: inclua 'terrain' ou 'vehicle').");
 
+            _harvestProvideTools = Config.Bind(
+                "Coleta",
+                "FornecerFerramentas",
+                true,
+                "Se true (padrao), quando o companheiro NAO tiver machado/picareta o mod cria uma " +
+                "das ferramentas de 'FerramentasFornecidas' e coloca no inventario dele. E o que faz " +
+                "pedra e minerio funcionarem de primeira (o loadout padrao so tem Club, que nao " +
+                "arranha rocha). Desligado, a coleta avisa no HUD que falta ferramenta.");
+
+            _harvestProvidedTools = Config.Bind(
+                "Coleta",
+                "FerramentasFornecidas",
+                CompanionInventory.DefaultProvidedTools,
+                "Prefabs de ferramenta que o mod pode fornecer (separados por virgula), do mais " +
+                "fraco ao mais forte. So a primeira de cada tipo (machado = dano de corte, picareta " +
+                "= dano de picareta) que faltar e criada. Ex.: AxeStone,PickaxeAntler. Para minerar " +
+                "prata/obsidiana (tier maior) inclua PickaxeIron.");
+
             // Interface (Fase 2.6a).
             _hoverHints = Config.Bind(
                 "Interface",
@@ -358,6 +381,9 @@ namespace ModAIValheim
                 _harvestPauseOnCombat,
                 _harvestCollectDrops,
                 _harvestLayers);
+
+            // Ferramenta de coleta fornecida quando falta (Fase 2.8).
+            CompanionInventory.ConfigureHarvestTools(_harvestProvideTools, _harvestProvidedTools);
 
             CompanionCommands.Register();
 

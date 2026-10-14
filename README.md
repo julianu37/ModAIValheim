@@ -4,10 +4,11 @@ Mod de **companheiro NPC com inteligência artificial** para **Valheim 1.0** (in
 recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`NOTICE.md`](NOTICE.md).
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
-> equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, frutas…),
-> mostra **nome + teclas no hover**, tem um **menu no jogo** (status, aparência, combate, coleta e
-> teclas) e **volta o mesmo** depois de dispensado (itens, equipamento, aparência e modo). Ainda
-> faltam **multiplayer**, **voz/IA** e **backend**.
+> equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, minérios e
+> colhíveis — ver a [tabela de materiais](#materiais-suportados-fase-28)), mostra **nome + teclas no
+> hover**, tem um **menu no jogo** (status, aparência, combate, coleta e teclas) e **volta o mesmo**
+> depois de dispensado (itens, equipamento, aparência e modo). Ainda faltam **multiplayer**,
+> **voz/IA** e **backend**.
 
 ---
 
@@ -32,7 +33,7 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **F3** | Ciclar modo de combate: Passive → Defensive → Aggressive |
 | **F4** | Iniciar/parar a coleta do **recurso padrão** (config `Coleta/RecursoPadrao`, padrão `Wood`) |
 | **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
-| `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`) |
+| `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`, `modia_gather cobre 30`) — ver a [lista de materiais](#materiais-suportados-fase-28) |
 | `modia_stop` | Para a coleta e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
@@ -72,7 +73,7 @@ madeira** no estilo do Valheim, em PT-BR, com cinco seções:
 | **Status** | Nome, **vida** atual/máxima, **modo de combate** e **estado da coleta** (recurso + progresso) — só leitura, atualizado 2×/s |
 | **Aparência** | Ligar/desligar a aparência personalizada; **cor de pele** e **cor do cabelo/barba** (sliders R/G/B com amostra); **cabelo** e **barba** (lista do jogo + "Padrão do jogo"/"Nenhum") — **aplica em tempo real** |
 | **Combate** | Dropdown **Passivo / Defensivo / Agressivo** |
-| **Coleta** | **Recurso**, **quantidade** (0 = sem limite) e botões **Iniciar** / **Parar** |
+| **Coleta** | **Recurso** (dropdown com os materiais conhecidos — ver a [tabela](#materiais-suportados-fase-28) — mais **Outro…** para digitar qualquer item), **quantidade** (0 = sem limite) e botões **Iniciar** / **Parar** |
 | **Teclas** | Lista **somente leitura** das teclas atuais (invocar, dispensar, modo, coleta, menu) |
 
 - **Fecha** com a mesma tecla, com **ESC** ou pelo botão **Fechar**.
@@ -118,33 +119,103 @@ Onde o estado fica guardado:
   (ou desligue `PersistirEntreSessoes` para não gravar em disco).
 - `modia_state` (console) mostra o que está guardado: itens, equipados, modo, origem e data.
 
-### Coleta de recursos (Fase 2.4b)
+### Coleta de recursos (Fase 2.4b · ampliada na 2.8)
 
 O companheiro procura nós de coleta num raio (padrão 40 m), escolhe o de maior **valor esperado**
 (unidades do recurso pedido que o nó rende × esforço em golpes × distância), equipa a **ferramenta
-adequada** (machado para madeira, picareta para pedra — escolhida pelas resistências do nó), bate
-até destruir, **pega os drops** e segue para o próximo nó, repetindo até a **quantidade** pedida ou
-até não haver mais nó no raio.
+adequada** (machado para madeira, picareta para pedra/minério — escolhida pelas resistências do nó),
+bate até destruir, **pega os drops** e segue para o próximo nó, repetindo até a **quantidade** pedida
+ou até não haver mais nó no raio.
 
 - **Madeira sai de árvore**: o companheiro derruba a árvore (`TreeBase`), depois parte as **toras**
   que caem (`TreeLog`) — é nelas que a madeira está (uma Beech1 rende ~20 Wood). O rendimento é
   estimado seguindo a cascata `m_logPrefab` → `m_subLogPrefab`, então a árvore ganha dos galhos
   (`Pickable`) e dos itens avulsos no chão; esses continuam valendo como fonte quando não há árvore
   por perto.
-- Recursos: qualquer **item** do jogo que caia de árvore, tora, pedra, rocha, planta ou entulho
-  (`m_dropWhenDestroyed`/`m_dropItems`/`m_itemPrefab`/`DropOnDestroyed`). Vale o nome do prefab
-  (`Wood`, `Stone`, `Raspberry`, `Resin`…), apelidos em português (`madeira`, `pedra`, `amora`) e o
-  **nome localizado** do item. `modia_gather` sem argumento mostra a ajuda.
+- **Pedra e minério saem de rocha**: `MineRock`/`MineRock5` dropam por **área de golpe**, então o
+  companheiro **mira na superfície** da rocha (não no centro da raiz) e reposiciona quando uma área
+  some — é o que faz os golpes conectarem em rochas grandes.
+- **Ferramenta**: quando falta machado ou picareta, o mod **fornece uma** do conjunto
+  `Coleta/FerramentasFornecidas` (padrão `AxeStone,PickaxeAntler`) e coloca no inventário do
+  companheiro — sem isso o loadout padrão (`Club`) não arranha pedra nenhuma. Desligue com
+  `Coleta/FornecerFerramentas = false`; sem ferramenta capaz, o HUD avisa e o nó **não** vira alvo
+  (o companheiro não fica mais batendo à toa até travar).
+- **Recursos**: a lista curada da tabela abaixo resolve `modia_gather pedra`, `stone`, `Stone`,
+  `madeira`, `silex`, `cobre`… Qualquer **item** do jogo continua valendo pelo nome do prefab
+  (`Wood`, `Stone`, `Raspberry`, `Resin`…) ou pelo **nome localizado** do item. `modia_gather` sem
+  argumento mostra a lista.
 - Quantidade: `modia_gather wood 20` para parar em 20; sem quantidade ele coleta enquanto achar nó.
 - Combate x coleta: nos modos **Defensive/Aggressive** um inimigo hostil **pausa** a coleta (a
   tarefa continua e é retomada quando o combate acaba); no **Passive** ele ignora inimigos e
   continua coletando. Desligue com `Coleta/PausarEmCombate = false`.
 - Segurança: nunca ataca **construções do jogador** (peças/`WearNTear`) nem **contêineres**, não
   coleta nós submersos nem nós encostados em construções, e larga o nó se o jogador se afastar.
-- Recursos que só caem de **criaturas** (couro, tripas…) não estão no escopo desta fase.
 - Com `Geral/LogDetalhado = true` cada varredura imprime um diagnóstico (nós por categoria,
-  candidatos que casam com o recurso, motivos de descarte e o alvo escolhido com camada,
-  rendimento estimado, golpes e score) — é a ferramenta para investigar "por que ele não pegou X".
+  candidatos que casam com o recurso, motivos de descarte — inclusive `sem ferramenta` — e o alvo
+  escolhido com camada, rendimento estimado, golpes e score) — é a ferramenta para investigar "por
+  que ele não pegou X".
+
+#### Materiais suportados (Fase 2.8)
+
+O que cai de **nó de coleta** (árvore/tora, pedra/minério, planta colhível) o companheiro coleta. A
+coluna **Ferramenta** é o que o jogo exige para arranhar o nó (`HitData.CheckToolTier`); sem ela o
+mod **fornece** a ferramenta (config acima) ou avisa no HUD.
+
+| Material (item) | Categoria | De onde vem (nó) | Ferramenta | Situação |
+|---|---|---|---|---|
+| `Wood` (Madeira) | madeira | árvores (`TreeBase`) → toras (`TreeLog`), tocos | machado (corte) | ✅ funciona |
+| `FineWood` (Madeira fina) | madeira | carvalho/bétula | machado | ✅ funciona |
+| `RoundLog` (Tora) | madeira | toras no chão | machado | ✅ funciona |
+| `ElderBark` (Casca de ancião) | madeira | árvores anciãs (pântano) | machado | ✅ funciona |
+| `YggdrasilWood` (Madeira de Yggdrasil) | madeira | brotos de Yggdrasil (Mistlands) | machado | ✅ funciona |
+| `Blackwood` (Madeira negra) | madeira | árvores de Ashlands | machado | ✅ funciona |
+| `Resin` (Resina) | madeira | drop de árvore (faia/pinheiro/abeto) | — | ✅ funciona |
+| `Stone` (Pedra) | pedra | pedrinhas (`Pickable`) e rochas grandes (`MineRock`/`MineRock5`) | picareta (tier 1) | ✅ funciona |
+| `Flint` (Sílex) | pedra | pedras de praia (`Pickable`) | — | ✅ funciona |
+| `Obsidian` (Obsidiana) | pedra | veios da montanha (`MineRock5`) | picareta (tier alto) | ✅ funciona (precisa da picareta certa) |
+| `BlackMarble` (Mármore negro) | pedra | depósitos da Mistlands | picareta | ✅ funciona |
+| `Grausten` (Grausten) | pedra | depósitos de Ashlands | picareta | ✅ funciona |
+| `CopperOre` (Minério de cobre) | minério | depósito de cobre (`MineRock5`) | picareta (tier 1) | ✅ funciona |
+| `TinOre` (Minério de estanho) | minério | depósito de estanho (`MineRock5`) | picareta (tier 1) | ✅ funciona |
+| `IronScrap` (Sucata de ferro) | minério | pilhas de sucata do pântano (`MineRock`) | picareta (tier 2+) | ✅ funciona |
+| `SilverOre` (Minério de prata) | minério | veio de prata (`MineRock5`, precisa de *wishbone* p/ achar) | picareta (tier 3) | ✅ funciona (com picareta forte) |
+| `BlackMetalScrap` (Sucata de metal negro) | minério | depósitos das planícies | picareta (tier 4) | ✅ funciona |
+| `CopperScrap` (Sucata de cobre) | minério | depósitos (Mistlands/Ashlands) | picareta | ✅ funciona |
+| `FlametalOreNew` (Minério de flametal) | minério | depósitos de Ashlands | picareta (tier alto) | ✅ funciona (com picareta forte) |
+| `Chitin` (Quitina) | minério | "barnacles" do Leviatã (mar) | picareta | ✅ funciona (precisa do Leviatã) |
+| `Crystal` (Cristal) | minério | cristais da montanha | picareta | ✅ funciona |
+| `Raspberry` (Framboesa) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
+| `Blueberries` (Mirtilos) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
+| `Cloudberry` (Amora-branca) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
+| `Mushroom` (Cogumelo) | colhível | `Pickable` | — | ✅ funciona |
+| `MushroomYellow` (Cogumelo amarelo) | colhível | `Pickable` | — | ✅ funciona |
+| `MushroomBlue` (Cogumelo azul) | colhível | `Pickable` | — | ✅ funciona |
+| `MushroomMagecap` (Cogumelo mágico) | colhível | `Pickable` | — | ✅ funciona |
+| `MushroomJotunPuffs` (Cogumelo Jotun) | colhível | `Pickable` | — | ✅ funciona |
+| `MushroomSmokePuff` (Cogumelo de fumaça) | colhível | `Pickable` | — | ✅ funciona |
+| `Thistle` (Cardo) | colhível | `Pickable` | — | ✅ funciona |
+| `Dandelion` (Dente-de-leão) | colhível | `Pickable` | — | ✅ funciona |
+| `Carrot` (Cenoura) | colhível | `Pickable` (plantação) | — | ✅ funciona |
+| `Turnip` (Nabo) | colhível | `Pickable` (plantação) | — | ✅ funciona |
+| `Onion` (Cebola) | colhível | `Pickable` (plantação) | — | ✅ funciona |
+| `Barley` (Cevada) | colhível | `Pickable` (plantação nas planícies) | — | ✅ funciona |
+| `Flax` (Linho) | colhível | `Pickable` (plantação nas planícies) | — | ✅ funciona |
+| `RoyalJelly` (Geleia real) | colhível | `Pickable` (Mistlands) | — | ✅ funciona |
+| `Honey` (Mel) | colhível | colmeia (`Pickable`/baú) | — | ✅ funciona |
+
+**Fora do escopo** (não há nó de coleta para o companheiro procurar — vêm de criatura, baú ou
+produção do jogador):
+
+| Material | Por que não |
+|---|---|
+| `Feathers` (Penas), `LeatherScraps` (Retalhos de couro), `DeerHide` (Pele de cervo), `BoneFragments` (Fragmentos de osso), `GreydwarfEye` (Olho de Greydwarf), `Guck` (Gosma), `TrollHide` | só caem de **criatura** (`CharacterDrop`) — a coleta por combate é outra fase |
+| `Coal` (Carvão) | produção do jogador (fornalha/kiln) ou drop de Surtling |
+| `Amber`, `AmberPearl`, `Ruby`, `SilverNecklace`, `Gold` | **baú / tesouro enterrado** (contêiner), não nó |
+| Peixe (`Fish*`) | pesca (a Fase de coleta não cobre a vara) |
+
+> Os nomes de prefab da tabela foram confirmados para o Valheim 1.0 (ver
+> `docs/re/harvesting-notes.md`). `Chitin` e `Crystal` são minerados de nós específicos (Leviatã e
+> cristais da montanha): entram na lista e o scanner os resolve pelo componente, como os demais.
 
 ### Configuração (seções do `.cfg`)
 
@@ -154,7 +225,7 @@ até não haver mais nó no raio.
 - **Aparencia** — `AparenciaPadrao`, `CabeloPrefab`, `BarbaPrefab`, `CorPele`, `CorCabelo`
 - **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
-  `PausarEmCombate`, `CatarDrops`, `Camadas`
+  `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -202,6 +273,25 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 4. Com `Companheiro/PersistirEntreSessoes = true` (padrão), **feche e abra o jogo** e invoque de
    novo: o companheiro volta igual.
 5. Para voltar ao comportamento antigo (loadout padrão), use `modia_state clear`.
+
+### Teste rápido da coleta ampliada (Fase 2.8)
+
+1. **F1** invoca o companheiro e **F4** (ou `modia_gather wood 20`) coleta madeira como antes.
+2. **Pedra**: vá para perto de rochas/pedrinhas e rode `modia_gather pedra 30`. O log deve mostrar
+   `alvo '...' (MineRock/MineRock5/Pickable ...)`, e a mensagem de HUD `Coleta: Stone (30x)`.
+   Se faltar ferramenta, o mod cria a picareta (`Coleta/FornecerFerramentas`) e o log registra
+   `Ferramenta de coleta fornecida ... 'PickaxeAntler'`.
+3. **Minério**: `modia_gather cobre 20` (perto de um depósito de cobre) e `modia_gather estanho 20`.
+   Com `Coleta/FerramentasFornecidas = AxeStone,PickaxeAntler,PickaxeIron` dá para testar
+   prata/obsidiana também.
+4. **Menu**: **Y** com o companheiro a até 5 m → seção **Coleta** → escolha o recurso no **dropdown**
+   (ex.: "Pedra", "Sílex", "Minério de cobre"), a quantidade e **Iniciar**. A opção **Outro…**
+   revela o campo livre para digitar qualquer item.
+5. **Diagnóstico**: `Geral/LogDetalhado = true` mostra, por varredura, quantos nós casaram, quantos
+   ficaram `sem ferramenta` e qual foi o escolhido (com rendimento/golpes/score).
+6. Para **spawnar** pedra/minério perto de você (para o teste): console (**F5**) do jogo —
+   `spawn Pickable_Stone 10`, `spawn MineRock 3` (ou `spawn Rock_3 3`) e
+   `spawn Pickable_Flint 5`; para minério, `spawn MineRock_Copper 1` / `spawn MineRock_Tin 1`.
 
 ---
 

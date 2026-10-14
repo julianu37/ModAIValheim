@@ -289,33 +289,12 @@ namespace ModAIValheim.Companion
 
         /// <summary>
         /// Nome de exibição do recurso de coleta: o nome localizado do item (ex.: <c>Wood</c> →
-        /// "Madeira") quando ele existe no <see cref="ObjectDB"/>; senão o próprio nome do prefab.
+        /// "Madeira"), com reserva PT-BR da lista curada e, por último, o próprio nome do prefab.
+        /// Fonte única: <see cref="CompanionHarvestResources.DisplayName"/>.
         /// </summary>
         private static string ResourceDisplayName(string prefabName)
         {
-            if (string.IsNullOrEmpty(prefabName))
-            {
-                return "-";
-            }
-
-            ObjectDB db = ObjectDB.instance;
-            GameObject prefab = db != null ? db.GetItemPrefab(prefabName) : null;
-            ItemDrop drop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
-            if (drop != null && drop.m_itemData != null && drop.m_itemData.m_shared != null)
-            {
-                Localization localization = Localization.instance;
-                string sharedName = drop.m_itemData.m_shared.m_name;
-                if (localization != null && !string.IsNullOrEmpty(sharedName))
-                {
-                    string localized = localization.Localize(sharedName);
-                    if (!string.IsNullOrEmpty(localized))
-                    {
-                        return localized;
-                    }
-                }
-            }
-
-            return prefabName;
+            return CompanionHarvestResources.DisplayName(prefabName);
         }
 
         /// <summary>

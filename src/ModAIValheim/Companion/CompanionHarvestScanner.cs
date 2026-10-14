@@ -139,6 +139,13 @@ namespace ModAIValheim.Companion
         /// <summary>False quando o companheiro não tem ferramenta capaz de fazer dano no nó.</summary>
         public bool Breakable;
 
+        /// <summary>
+        /// True quando a varredura encontrou nó(s) do recurso que <b>renderiam</b> mas a ferramenta
+        /// do companheiro não arranha (tier abaixo do mínimo / dano 0). Serve para explicar
+        /// "pedra não funciona" sem picareta: a IA mostra o aviso em vez de vagar batendo à toa.
+        /// </summary>
+        public bool NeedsBetterTool;
+
         /// <summary>Descrição da varredura (candidatos, distância, score), montada pelo scanner.</summary>
         public string Reason;
     }
@@ -246,6 +253,7 @@ namespace ModAIValheim.Companion
         private static int s_scanUnderwater;
         private static int s_scanBuild;
         private static int s_scanFar;
+        private static int s_scanNoTool;
         private static int s_scanPrimary;
         private static int s_scanFallback;
         private static bool s_scanSaturated;
@@ -347,6 +355,11 @@ namespace ModAIValheim.Companion
                 EvaluateCandidates(
                     s_fallbackColliders, Mathf.Min(fallbackCount, s_fallbackColliders.Length), origin,
                     radius, resourceHash, includeDrops, tools, ref pick);
+            }
+
+            if (pick.Node == null && s_scanNoTool > 0)
+            {
+                pick.NeedsBetterTool = true;
             }
 
             pick.Reason = DescribeScan(resource, radius);
@@ -464,6 +477,15 @@ namespace ModAIValheim.Companion
                 bool breakable = !NeedsTool(info.Kind) ||
                                  (damage > 0f && toolTier >= info.MinToolTier);
 
+                // Nó que o companheiro NÃO consegue arranhar não vira alvo: sem isso ele caminha
+                // até a rocha, bate sem fazer dano, trava por 7 s e a veta — o sintoma de "pedra
+                // não funciona" quando falta picareta. Aqui ele é contado e a IA avisa o jogador.
+                if (NeedsTool(info.Kind) && !breakable)
+                {
+                    s_scanNoTool++;
+                    continue;
+                }
+
                 int hits = EstimateHits(info, damage, breakable);
                 float score = CalculateScore(yield, hits, distance, breakable);
 
@@ -517,6 +539,83 @@ namespace ModAIValheim.Companion
         {
             ItemDrop drop = node != null ? node.GetComponent<ItemDrop>() : null;
             return drop != null && drop.m_itemData != null ? Mathf.Max(1, drop.m_itemData.m_stack) : 1;
+        }
+
+        /// <summary>Buffer reaproveitado da busca de colliders de um nó (nunca alocado em jogo).</summary>
+        private static readonly List<Collider> s_colliderBuffer = new List<Collider>(16);
+
+        /// <summary>
+        /// Ponto de mira/golpe do nó. Para <b>rochas e entulho</b> (<see cref="MineRock"/>,
+        /// <see cref="MineRock5"/>, <see cref="Destructible"/>) é o ponto mais próximo na superfície
+        /// de uma <b>área de golpe ativa</b>: a raiz de uma rocha grande fica no centro (longe da
+        /// hitbox do golpe), então mirar em <c>transform.position + up</c> fazia o companheiro bater
+        /// no ar — era um dos motivos de "pedra não funciona". Para os demais nós (árvore, tora,
+        /// planta, item) é a posição do nó um pouco acima.
+        /// </summary>
+        internal static Vector3 GetAimPoint(GameObject node, in HarvestPrefabInfo info, Vector3 from)
+        {
+            if (node == null)
+            {
+                return from;
+            }
+
+            if (info.Kind == HarvestNodeKind.MineRock ||
+                info.Kind == HarvestNodeKind.MineRock5 ||
+                info.Kind == HarvestNodeKind.Destructible)
+            {
+                Collider closest = FindClosestActiveCollider(node, from);
+                if (closest != null)
+                {
+                    Vector3 point = ClosestPoint(closest, from);
+                    point.y = Mathf.Max(point.y, from.y + 0.2f);
+                    return point;
+                }
+            }
+
+            return node.transform.position + Vector3.up * 1f;
+        }
+
+        /// <summary>
+        /// Collider ativo (não-trigger) do nó mais próximo de <paramref name="from"/>. Usa o buffer
+        /// estático (o overload de <c>List</c> do <c>GetComponentsInChildren</c>): nada é alocado por
+        /// tick. O nó é varrido a cada golpe porque as áreas de uma <see cref="MineRock5"/> são
+        /// desativadas conforme são destruídas — a mira precisa acompanhar.
+        /// </summary>
+        private static Collider FindClosestActiveCollider(GameObject node, Vector3 from)
+        {
+            s_colliderBuffer.Clear();
+            node.GetComponentsInChildren(s_colliderBuffer);
+
+            Collider best = null;
+            float bestDistance = float.MaxValue;
+            for (int i = 0; i < s_colliderBuffer.Count; i++)
+            {
+                Collider collider = s_colliderBuffer[i];
+                if (collider == null || collider.isTrigger || !collider.gameObject.activeInHierarchy)
+                {
+                    continue;
+                }
+
+                float distance = Vector3.Distance(collider.bounds.center, from);
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = collider;
+                }
+            }
+
+            return best;
+        }
+
+        private static Vector3 ClosestPoint(Collider collider, Vector3 point)
+        {
+            // MeshCollider não-convexo não tem ClosestPoint confiável em runtime: usa os bounds.
+            if (collider is MeshCollider mesh && !mesh.convex)
+            {
+                return collider.ClosestPointOnBounds(point);
+            }
+
+            return collider.ClosestPoint(point);
         }
 
         // ---------------------------------------------------------------------
@@ -1229,6 +1328,7 @@ namespace ModAIValheim.Companion
             s_scanUnderwater = 0;
             s_scanBuild = 0;
             s_scanFar = 0;
+            s_scanNoTool = 0;
             s_scanPrimary = 0;
             s_scanFallback = 0;
             s_scanSaturated = false;
@@ -1243,6 +1343,13 @@ namespace ModAIValheim.Companion
             int matched = s_scanPrimary + s_scanFallback;
             if (matched == 0)
             {
+                if (s_scanNoTool > 0)
+                {
+                    return $"{s_scanNoTool} nó(s) de '{resource}' no raio de {radius:0} m, mas o " +
+                           "companheiro não tem ferramenta capaz (precisa de machado/picareta de " +
+                           "tier suficiente; veja modia_inv e modia_equip)";
+                }
+
                 return s_scanClassified == 0
                     ? $"nenhum nó de coleta no raio de {radius:0} m ({s_scanColliders} collider(s) " +
                       "varrido(s); confira Coleta/Camadas se o recurso existe por perto)"
@@ -1301,6 +1408,7 @@ namespace ModAIValheim.Companion
                 .Append(", sem o recurso=").Append(s_scanNoResource)
                 .Append(", sem rendimento=").Append(s_scanNoYield)
                 .Append(", esgotado=").Append(s_scanNotHarvestable)
+                .Append(", sem ferramenta=").Append(s_scanNoTool)
                 .Append(", submerso=").Append(s_scanUnderwater)
                 .Append(", perto de obra=").Append(s_scanBuild)
                 .Append(", longe=").Append(s_scanFar)

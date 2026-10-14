@@ -85,6 +85,8 @@ namespace ModAIValheim.Companion
 
         private const string TokenHarvest = "$modia_menu_harvest";
         private const string TokenHarvestResource = "$modia_menu_harvest_resource";
+        private const string TokenHarvestOther = "$modia_menu_harvest_other";
+        private const string TokenHarvestCustom = "$modia_menu_harvest_custom";
         private const string TokenHarvestAmount = "$modia_menu_harvest_amount";
         private const string TokenHarvestStart = "$modia_menu_harvest_start";
         private const string TokenHarvestStop = "$modia_menu_harvest_stop";
@@ -129,6 +131,8 @@ namespace ModAIValheim.Companion
 
             { TokenHarvest, "Coleta" },
             { TokenHarvestResource, "Recurso" },
+            { TokenHarvestOther, "Outro…" },
+            { TokenHarvestCustom, "Outro (digite)" },
             { TokenHarvestAmount, "Quantidade" },
             { TokenHarvestStart, "Iniciar" },
             { TokenHarvestStop, "Parar" },
@@ -181,8 +185,17 @@ namespace ModAIValheim.Companion
         private static Dropdown _hairDropdown;
         private static Dropdown _beardDropdown;
 
-        private static InputField _resourceField;
         private static InputField _amountField;
+
+        /// <summary>Dropdown dos recursos conhecidos (o último item é "Outro…", que revela o campo livre).</summary>
+        private static Dropdown _resourceDropdown;
+
+        /// <summary>Prefab por índice do dropdown (<see cref="CompanionHarvestResources.OtherValue"/> no fim).</summary>
+        private static List<string> _resourceValues;
+
+        /// <summary>Campo livre de recurso, mostrado só quando "Outro…" está escolhido.</summary>
+        private static InputField _customResourceField;
+        private static GameObject _customResourceLabel;
 
         /// <summary>Valor de config por índice dos dropdowns de cabelo/barba (0 = "" e 1 = "none").</summary>
         private static List<string> _hairValues;
@@ -304,7 +317,7 @@ namespace ModAIValheim.Companion
 
         private static bool TypingInField()
         {
-            return (_resourceField != null && _resourceField.isFocused) ||
+            return (_customResourceField != null && _customResourceField.isFocused) ||
                    (_amountField != null && _amountField.isFocused);
         }
 
@@ -512,24 +525,32 @@ namespace ModAIValheim.Companion
         {
             MakeHeader(gui, TokenHarvest, 440f, 122f, 320f);
 
+            // Recurso: dropdown com a lista curada (nomes localizados) + "Outro…".
             MakeLabel(gui, Text(TokenHarvestResource), 448f, 152f, 90f, 26f, 15, Color.white);
-            _resourceField = gui.CreateInputField(
+            _resourceDropdown = MenuDropdown(gui, 544f, 152f, 216f, OnResourceChanged);
+            BuildResourceOptions(_resourceDropdown);
+
+            // Campo livre, visível só quando "Outro…" está escolhido.
+            _customResourceLabel = MakeLabel(
+                gui, Text(TokenHarvestCustom), 448f, 186f, 90f, 26f, 15, Color.white);
+            _customResourceField = gui.CreateInputField(
                 parent: _panel.transform,
                 anchorMin: TopLeft,
                 anchorMax: TopLeft,
-                position: Center(544f, 152f, 216f, 26f),
+                position: Center(544f, 186f, 216f, 26f),
                 contentType: InputField.ContentType.Standard,
                 placeholderText: "Wood",
                 fontSize: 15,
                 width: 216f,
                 height: 26f).GetComponent<InputField>();
+            SetCustomResourceVisible(false);
 
-            MakeLabel(gui, Text(TokenHarvestAmount), 448f, 186f, 90f, 26f, 15, Color.white);
+            MakeLabel(gui, Text(TokenHarvestAmount), 448f, 220f, 90f, 26f, 15, Color.white);
             _amountField = gui.CreateInputField(
                 parent: _panel.transform,
                 anchorMin: TopLeft,
                 anchorMax: TopLeft,
-                position: Center(544f, 186f, 216f, 26f),
+                position: Center(544f, 220f, 216f, 26f),
                 contentType: InputField.ContentType.IntegerNumber,
                 placeholderText: "0",
                 fontSize: 15,
@@ -538,23 +559,65 @@ namespace ModAIValheim.Companion
 
             GameObject start = gui.CreateButton(
                 Text(TokenHarvestStart), _panel.transform, TopLeft, TopLeft,
-                Center(448f, 220f, 148f, 30f), 148f, 30f);
+                Center(448f, 254f, 148f, 30f), 148f, 30f);
             start.GetComponent<Button>().onClick.AddListener(OnHarvestStart);
 
             GameObject stop = gui.CreateButton(
                 Text(TokenHarvestStop), _panel.transform, TopLeft, TopLeft,
-                Center(612f, 220f, 148f, 30f), 148f, 30f);
+                Center(612f, 254f, 148f, 30f), 148f, 30f);
             stop.GetComponent<Button>().onClick.AddListener(OnHarvestStop);
 
-            _harvestStatusText = MakeLabel(gui, string.Empty, 448f, 256f, 312f, 44f, 14,
+            _harvestStatusText = MakeLabel(gui, string.Empty, 448f, 290f, 312f, 44f, 14,
                 Color.white).GetComponent<Text>();
+        }
+
+        /// <summary>
+        /// Preenche o dropdown de recursos com a lista curada (rótulo = nome localizado do item) e
+        /// fecha com a opção "Outro…", que revela o campo livre.
+        /// </summary>
+        private static void BuildResourceOptions(Dropdown dropdown)
+        {
+            if (dropdown == null)
+            {
+                return;
+            }
+
+            _resourceValues = new List<string>();
+            List<Dropdown.OptionData> options = new List<Dropdown.OptionData>();
+
+            HarvestResourceInfo[] all = CompanionHarvestResources.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                _resourceValues.Add(all[i].Prefab);
+                options.Add(new Dropdown.OptionData(CompanionHarvestResources.DisplayName(all[i].Prefab)));
+            }
+
+            _resourceValues.Add(CompanionHarvestResources.OtherValue);
+            options.Add(new Dropdown.OptionData(Text(TokenHarvestOther)));
+
+            dropdown.ClearOptions();
+            dropdown.AddOptions(options);
+            dropdown.RefreshShownValue();
+        }
+
+        private static void SetCustomResourceVisible(bool visible)
+        {
+            if (_customResourceLabel != null)
+            {
+                _customResourceLabel.SetActive(visible);
+            }
+
+            if (_customResourceField != null)
+            {
+                _customResourceField.gameObject.SetActive(visible);
+            }
         }
 
         private static void BuildKeys(GUIManager gui)
         {
-            MakeHeader(gui, TokenKeys, 440f, 306f, 320f);
+            MakeHeader(gui, TokenKeys, 440f, 340f, 320f);
 
-            _keysText = MakeLabel(gui, string.Empty, 448f, 332f, 312f, 140f, 14,
+            _keysText = MakeLabel(gui, string.Empty, 448f, 366f, 312f, 130f, 14,
                 Color.white).GetComponent<Text>();
         }
 
@@ -835,12 +898,26 @@ namespace ModAIValheim.Companion
 
         private static void RefreshHarvest()
         {
-            if (_resourceField != null)
+            string resource = CompanionHarvest.IsActive
+                ? CompanionHarvest.ResourceName
+                : CompanionHarvest.DefaultResource;
+
+            if (_resourceDropdown != null && _resourceValues != null && _resourceValues.Count > 0)
             {
-                string resource = CompanionHarvest.IsActive
-                    ? CompanionHarvest.ResourceName
-                    : CompanionHarvest.DefaultResource;
-                _resourceField.SetTextWithoutNotify(resource ?? string.Empty);
+                int index = _resourceValues.IndexOf(resource ?? string.Empty);
+                if (index < 0)
+                {
+                    // Recurso fora da lista curada: cai em "Outro…" e o nome vai para o campo livre.
+                    index = _resourceValues.Count - 1;
+                    if (_customResourceField != null)
+                    {
+                        _customResourceField.SetTextWithoutNotify(resource ?? string.Empty);
+                    }
+                }
+
+                _resourceDropdown.SetValueWithoutNotify(index);
+                _resourceDropdown.RefreshShownValue();
+                SetCustomResourceVisible(_resourceValues[index] == CompanionHarvestResources.OtherValue);
             }
 
             if (_amountField != null)
@@ -975,9 +1052,47 @@ namespace ModAIValheim.Companion
             CompanionCombat.SetMode((CompanionMode)Mathf.Clamp(index, 0, 2), "menu");
         }
 
+        /// <summary>
+        /// Troca do recurso no dropdown: mostra o campo livre só quando "Outro…" foi escolhido.
+        /// </summary>
+        private static void OnResourceChanged(int index)
+        {
+            if (_refreshing || _resourceValues == null || index < 0 || index >= _resourceValues.Count)
+            {
+                return;
+            }
+
+            bool other = _resourceValues[index] == CompanionHarvestResources.OtherValue;
+            SetCustomResourceVisible(other);
+
+            if (other && _customResourceField != null && !_customResourceField.isFocused)
+            {
+                _customResourceField.ActivateInputField();
+            }
+        }
+
+        /// <summary>
+        /// Recurso escolhido no menu: o prefab do dropdown ou, em "Outro…", o texto digitado no
+        /// campo livre (que aceita o mesmo que o <c>modia_gather</c>: nome do item, apelido PT/EN).
+        /// </summary>
+        private static string SelectedResource()
+        {
+            if (_resourceDropdown != null && _resourceValues != null &&
+                _resourceDropdown.value >= 0 && _resourceDropdown.value < _resourceValues.Count)
+            {
+                string value = _resourceValues[_resourceDropdown.value];
+                if (value != CompanionHarvestResources.OtherValue)
+                {
+                    return value;
+                }
+            }
+
+            return _customResourceField != null ? _customResourceField.text : string.Empty;
+        }
+
         private static void OnHarvestStart()
         {
-            string resource = _resourceField != null ? _resourceField.text : string.Empty;
+            string resource = SelectedResource();
             int amount = 0;
             if (_amountField != null)
             {
@@ -1038,32 +1153,14 @@ namespace ModAIValheim.Companion
             }
         }
 
-        /// <summary>Nome localizado do item (ex.: <c>Wood</c> → "Madeira"), com fallback no prefab.</summary>
+        /// <summary>
+        /// Nome de exibição do recurso (ex.: <c>Wood</c> → "Madeira"). Fonte única:
+        /// <see cref="CompanionHarvestResources.DisplayName"/> (nome localizado do item com reserva
+        /// PT-BR e, por último, o próprio nome do prefab).
+        /// </summary>
         private static string ResourceName(string prefabName)
         {
-            if (string.IsNullOrEmpty(prefabName))
-            {
-                return "-";
-            }
-
-            ObjectDB db = ObjectDB.instance;
-            GameObject prefab = db != null ? db.GetItemPrefab(prefabName) : null;
-            ItemDrop drop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
-            if (drop != null && drop.m_itemData != null && drop.m_itemData.m_shared != null)
-            {
-                Localization localization = Localization.instance;
-                string sharedName = drop.m_itemData.m_shared.m_name;
-                if (localization != null && !string.IsNullOrEmpty(sharedName))
-                {
-                    string localized = localization.Localize(sharedName);
-                    if (!string.IsNullOrEmpty(localized))
-                    {
-                        return localized;
-                    }
-                }
-            }
-
-            return prefabName;
+            return CompanionHarvestResources.DisplayName(prefabName);
         }
 
         private static string Key(KeyCode key)
@@ -1162,7 +1259,10 @@ namespace ModAIValheim.Companion
             _modeDropdown = null;
             _hairDropdown = null;
             _beardDropdown = null;
-            _resourceField = null;
+            _resourceDropdown = null;
+            _resourceValues = null;
+            _customResourceField = null;
+            _customResourceLabel = null;
             _amountField = null;
             _hairValues = null;
             _beardValues = null;

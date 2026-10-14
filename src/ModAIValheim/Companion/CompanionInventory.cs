@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
 using UnityEngine;
@@ -40,6 +41,10 @@ namespace ModAIValheim.Companion
         private static ConfigEntry<string> _weaponPrefab;
         private static ConfigEntry<string> _armorPrefabs;
 
+        // Ferramenta de coleta fornecida quando falta (Fase 2.8).
+        private static ConfigEntry<bool> _provideTools;
+        private static ConfigEntry<string> _providedToolPrefabs;
+
         private static bool _visualsInspected;
 
         internal static void Configure(
@@ -52,10 +57,28 @@ namespace ModAIValheim.Companion
             _armorPrefabs = armorPrefabs;
         }
 
+        /// <summary>
+        /// Config da <b>ferramenta de coleta fornecida</b> (Fase 2.8): quando o companheiro não tem
+        /// machado/picareta, o mod cria uma do conjunto configurado e coloca no inventário — é o que
+        /// faz pedra/minério funcionarem sem o jogador ter de equipar nada à mão.
+        /// </summary>
+        internal static void ConfigureHarvestTools(
+            ConfigEntry<bool> provideTools,
+            ConfigEntry<string> toolPrefabs)
+        {
+            _provideTools = provideTools;
+            _providedToolPrefabs = toolPrefabs;
+
+            Plugin.Log.LogInfo(
+                $"[ModIA] Coleta: fornecer ferramenta quando faltar = {ProvideTools} | " +
+                $"ferramentas = '{ProvidedToolPrefabs}'.");
+        }
+
         /// <summary>Solta o estado estático (unload do plugin / fim do mundo).</summary>
         internal static void Shutdown()
         {
             _visualsInspected = false;
+            s_missingToolWarned.Clear();
         }
 
         // ---------------------------------------------------------------------
@@ -471,6 +494,150 @@ namespace ModAIValheim.Companion
         /// </summary>
         private static readonly List<HarvestToolProfile> s_toolBuffer = new List<HarvestToolProfile>();
 
+        /// <summary>Conjunto padrão de ferramentas fornecidas quando o companheiro não tem nenhuma.</summary>
+        internal const string DefaultProvidedTools = "AxeStone,PickaxeAntler";
+
+        /// <summary>Prefabs de ferramenta já avisados como inexistentes (evita spam no log).</summary>
+        private static readonly HashSet<string> s_missingToolWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Fornecer ferramenta de coleta quando o companheiro não tem nenhuma (config).</summary>
+        internal static bool ProvideTools => _provideTools == null || _provideTools.Value;
+
+        /// <summary>Lista configurada de ferramentas fornecidas (config <c>Coleta/FerramentasFornecidas</c>).</summary>
+        internal static string ProvidedToolPrefabs =>
+            _providedToolPrefabs != null && !string.IsNullOrEmpty(_providedToolPrefabs.Value)
+                ? _providedToolPrefabs.Value
+                : DefaultProvidedTools;
+
+        /// <summary>
+        /// Garante que o companheiro tenha <b>alguma</b> ferramenta para o tipo de nó: sem machado
+        /// (dano de <i>chop</i>) e sem picareta (dano de <i>pickaxe</i>) no inventário, cria a
+        /// primeira ferramenta compatível de <see cref="ProvidedToolPrefabs"/> e coloca no
+        /// inventário (sem equipar). É o que faz pedra/minério entrarem na conta de coleta mesmo com
+        /// o loadout padrão (que só tem <c>Club</c>) ou com um snapshot antigo.
+        ///
+        /// <para>
+        /// Roda no máximo uma vez por ferramenta ausente: assim que o item entra no inventário, os
+        /// tipos deixam de faltar e a função não cria nada de novo. Desligável em
+        /// <c>Coleta/FornecerFerramentas</c>.
+        /// </para>
+        /// </summary>
+        internal static void EnsureHarvestTools(CompanionAI companion, string resourceName)
+        {
+            if (!ProvideTools)
+            {
+                return;
+            }
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return;
+            }
+
+            bool hasChop = false;
+            bool hasPickaxe = false;
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (!IsHarvestTool(item))
+                {
+                    continue;
+                }
+
+                HitData.DamageTypes damage = item.m_shared.m_damages;
+                if (damage.m_chop > 0f)
+                {
+                    hasChop = true;
+                }
+
+                if (damage.m_pickaxe > 0f)
+                {
+                    hasPickaxe = true;
+                }
+            }
+
+            if (hasChop && hasPickaxe)
+            {
+                return;
+            }
+
+            string[] names = ProvidedToolPrefabs.Split(ListSeparator);
+            for (int i = 0; i < names.Length; i++)
+            {
+                string name = names[i].Trim();
+                if (name.Length == 0)
+                {
+                    continue;
+                }
+
+                GameObject prefab = FindToolPrefab(name);
+                ItemDrop drop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+                if (drop == null || drop.m_itemData == null || drop.m_itemData.m_shared == null)
+                {
+                    continue;
+                }
+
+                HitData.DamageTypes damage = drop.m_itemData.m_shared.m_damages;
+                bool chop = damage.m_chop > 0f;
+                bool pickaxe = damage.m_pickaxe > 0f;
+
+                // Só cria o que falta (e só serve para o tipo que ele cobre).
+                if ((!chop || hasChop) && (!pickaxe || hasPickaxe))
+                {
+                    continue;
+                }
+
+                if (FindInInventory(inventory, prefab) != null)
+                {
+                    continue;
+                }
+
+                if (AddItems(inventory, prefab, 1) == null)
+                {
+                    continue;
+                }
+
+                if (chop)
+                {
+                    hasChop = true;
+                }
+
+                if (pickaxe)
+                {
+                    hasPickaxe = true;
+                }
+
+                Plugin.Log.LogInfo(
+                    $"[ModIA] Ferramenta de coleta fornecida ao companheiro: '{name}' " +
+                    $"(pedido: '{resourceName}').");
+            }
+        }
+
+        /// <summary>
+        /// Procura o prefab de ferramenta sem poluir o log: nome inválido na config é avisado
+        /// <b>uma vez</b> (a busca roda a cada varredura de coleta).
+        /// </summary>
+        private static GameObject FindToolPrefab(string name)
+        {
+            ObjectDB database = ObjectDB.instance;
+            GameObject prefab = database != null ? database.GetItemPrefab(name) : null;
+            if (prefab != null)
+            {
+                return prefab;
+            }
+
+            if (database != null && s_missingToolWarned.Add(name))
+            {
+                Plugin.Log.LogWarning(
+                    $"[ModIA] Ferramenta fornecida '{name}' não existe no ObjectDB; ignorada.");
+            }
+
+            return null;
+        }
+
         /// <summary>
         /// Preenche <paramref name="buffer"/> com as ferramentas de golpe do companheiro (tier +
         /// dano por tipo). É o que a busca de nós usa para estimar golpes e saber o que ele
@@ -633,6 +800,16 @@ namespace ModAIValheim.Companion
         private static bool IsHarvestTool(ItemDrop.ItemData item)
         {
             if (item == null || item.m_shared == null || !item.IsEquipable() || !item.HavePrimaryAttack())
+            {
+                return false;
+            }
+
+            // Arcos/bestas e munição nunca quebram nó: a besta chega a listar dano de "chop", mas o
+            // ataque é um projétil — sem esta guarda ela ganharia do machado e o companheiro ficaria
+            // parado atirando na árvore.
+            if (item.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Bow ||
+                item.m_shared.m_itemType == ItemDrop.ItemData.ItemType.Ammo ||
+                !string.IsNullOrEmpty(item.m_shared.m_ammoType))
             {
                 return false;
             }

@@ -3,6 +3,56 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.3.1] — 2026-10-13
+
+### Adicionado
+- **Lista curada de materiais de coleta** (Fase 2.8, `CompanionHarvestResources`): 39 recursos
+  conhecidos com o **nome canônico do item**, rótulo PT-BR e **apelidos PT/EN** — madeira
+  (`Wood`, `FineWood`, `RoundLog`, `ElderBark`, `YggdrasilWood`, `Blackwood`, `Resin`), pedra
+  (`Stone`, `Flint`, `Obsidian`, `BlackMarble`, `Grausten`), minérios (`CopperOre`, `TinOre`,
+  `IronScrap`, `SilverOre`, `BlackMetalScrap`, `CopperScrap`, `FlametalOreNew`, `Chitin`,
+  `Crystal`) e colhíveis (`Raspberry`, `Blueberries`, `Cloudberry`, `Mushroom*`, `Thistle`,
+  `Dandelion`, `Carrot`, `Turnip`, `Onion`, `Barley`, `Flax`, `RoyalJelly`, `Honey`). Agora
+  `modia_gather pedra`, `stone` e `Stone` caem todos no mesmo item; a resolução genérica (qualquer
+  nome de prefab ou nome localizado) continua valendo.
+- **Dropdown de recurso no menu** (seção **Coleta**): substitui o campo de texto livre por uma lista
+  com os materiais conhecidos (rótulos no **nome localizado** do item, ex.: "Madeira", "Pedra",
+  "Sílex", "Minério de cobre"), mantendo um campo livre **Outro…** para digitar qualquer recurso
+  fora da lista.
+- **Mira na superfície da rocha** (`CompanionHarvestScanner.GetAimPoint`): para
+  `MineRock`/`MineRock5`/`Destructible` o companheiro mira na **área de golpe ativa mais próxima**
+  (em vez do centro da raiz) e o progresso passa a ser medido pela distância à superfície — é o que
+  faz os golpes conectarem em rochas grandes e reposiciona quando uma área some.
+- **Fornecimento automático da ferramenta de coleta** (`CompanionInventory.EnsureHarvestTools` +
+  config `Coleta/FornecerFerramentas` / `Coleta/FerramentasFornecidas`): sem machado/picareta no
+  inventário, o mod cria a primeira ferramenta compatível da lista configurada (padrão
+  `AxeStone,PickaxeAntler`) e a coloca no inventário — é o que faz **pedra e minério funcionarem de
+  primeira** (o loadout padrão só tem `Club`, que não arranha rocha). Desligável.
+- **Aviso de ferramenta ausente** no HUD (rate-limited) e **descarte explícito** no diagnóstico da
+  varredura (`sem ferramenta=N`): nó que o companheiro não consegue arranhar deixa de virar alvo —
+  antes ele caminhava até a rocha, batia sem dano, travava 7 s e a vetava.
+- Ajuda do `modia_gather` agora lista os recursos conhecidos por categoria (nomes localizados).
+- Seção **Materiais suportados** no `README` (tabela do que funciona e do que está fora do escopo)
+  e receita de teste in-game.
+
+### Alterado
+- `CompanionHarvest.TryResolveResource`: resolve primeiro pela lista curada e só depois cai no
+  fallback genérico (nome de prefab → nome localizado do item).
+- Nome de exibição do recurso (`CompanionMenu`/`CompanionHover`) passa a ter **fonte única** em
+  `CompanionHarvestResources.DisplayName`.
+- `CompanionInventory.IsHarvestTool` descarta **arcos/bestas e munição** (a besta lista dano de
+  corte, mas o ataque é projétil e não quebra nó nenhum).
+- Menu: seção **Coleta** reorganizada (dropdown em 152, campo livre em 186, quantidade em 220,
+  botões em 254, status em 290) e a seção **Teclas** desceu para 340 para abrir espaço.
+- Versão do plugin → **0.3.1**.
+
+### Notas
+- O que cai de **criatura** (penas, couro, pele de cervo, fragmentos de osso, olho de Greydwarf,
+  gosma), de **baú/tesouro** (âmbar, rubi, colar de prata) ou de **produção do jogador** (carvão) não
+  é coletável: não há nó para o companheiro procurar. Ver a tabela do `README`.
+- `Chitin` (Leviatã) e `Crystal` (cristais da montanha) entram na lista curada; o scanner os resolve
+  pelo componente do nó, como qualquer outro material.
+
 ## [0.3.0] — 2026-10-13
 
 ### Adicionado

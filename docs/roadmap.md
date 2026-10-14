@@ -35,6 +35,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.6a | Hover do companheiro: nome + ações com as teclas (PT-BR, tokens de localização) | ✅ |
 | 2.6b | Menu do companheiro (painel Jotunn `GUIManager`): status, aparência ao vivo, combate, coleta e teclas | ✅ |
 | 2.7 | Persistência do companheiro: ao re-invocar (F1) volta o mesmo NPC (itens, equipamento, aparência e modo), com snapshot em memória + JSON opcional | ✅ |
+| 2.8 | Coleta ampliada: lista curada de materiais (pedra/minérios/colhíveis) + dropdown no menu + mira na rocha + ferramenta fornecida | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -74,3 +75,8 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   companheiro (itens, equipamento, aparência e modo). Estado em memória sempre + JSON opcional em
   `BepInEx\config\modia.companion.state.json` (`Companheiro/PersistirEntreSessoes`), com versão de
   formato e itens revalidados contra o `ObjectDB`; `modia_state`/`modia_state clear` no console.
+- **Fase 2.8 (0.3.1)** — **coleta ampliada**: lista curada de 39 materiais (`CompanionHarvestResources`)
+  com apelidos PT/EN (madeira, pedra, minérios e colhíveis), **dropdown de recurso** no menu (com
+  campo livre "Outro…"), **mira na superfície** de rochas (`GetAimPoint`) para os golpes conectarem
+  e **fornecimento automático de machado/picareta** quando falta (`Coleta/FornecerFerramentas`) —
+  pedra e minério passam a funcionar de primeira. Tabela de materiais no `README`.

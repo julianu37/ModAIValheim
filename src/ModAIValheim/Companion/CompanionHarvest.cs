@@ -510,70 +510,14 @@ namespace ModAIValheim.Companion
         // ---------------------------------------------------------------------
 
         /// <summary>
-        /// Apelidos (PT/EN) para os recursos mais usados. Os valores são nomes de <b>prefab de
-        /// item</b> do <see cref="ObjectDB"/> (validados em <see cref="TryResolveResource"/>).
-        /// Nomes fora da lista continuam funcionando pelo nome do prefab ou pelo nome localizado
-        /// do item (ex.: "madeira" no cliente em português).
-        /// </summary>
-        private static readonly Dictionary<string, string> s_aliases = new Dictionary<string, string>
-        {
-            { "wood", "Wood" },
-            { "madeira", "Wood" },
-            { "lenha", "Wood" },
-            { "tronco", "Wood" },
-            { "stone", "Stone" },
-            { "pedra", "Stone" },
-            { "rocha", "Stone" },
-            { "flint", "Flint" },
-            { "silex", "Flint" },
-            { "resin", "Resin" },
-            { "resina", "Resin" },
-            { "feathers", "Feathers" },
-            { "penas", "Feathers" },
-            { "leatherscraps", "LeatherScraps" },
-            { "couro", "LeatherScraps" },
-            { "deerhide", "DeerHide" },
-            { "pelodecervo", "DeerHide" },
-            { "bonefragments", "BoneFragments" },
-            { "osso", "BoneFragments" },
-            { "ossos", "BoneFragments" },
-            { "greydwarfeye", "GreydwarfEye" },
-            { "olhodegreydwarf", "GreydwarfEye" },
-            { "coal", "Coal" },
-            { "carvao", "Coal" },
-            { "copper", "CopperOre" },
-            { "cobre", "CopperOre" },
-            { "tin", "TinOre" },
-            { "estanho", "TinOre" },
-            { "iron", "IronScrap" },
-            { "ferro", "IronScrap" },
-            { "silver", "SilverOre" },
-            { "prata", "SilverOre" },
-            { "obsidian", "Obsidian" },
-            { "crystal", "Crystal" },
-            { "cristal", "Crystal" },
-            { "chitin", "Chitin" },
-            { "guck", "Guck" },
-            { "gosma", "Guck" },
-            { "thistle", "Thistle" },
-            { "carapaca", "Thistle" },
-            { "dandelion", "Dandelion" },
-            { "mushroom", "Mushroom" },
-            { "cogumelo", "Mushroom" },
-            { "raspberry", "Raspberry" },
-            { "amora", "Raspberry" },
-            { "blueberries", "Blueberries" },
-            { "mirtilo", "Blueberries" },
-            { "cloudberry", "Cloudberry" },
-            { "barley", "Barley" },
-            { "cevada", "Barley" },
-            { "flax", "Flax" },
-            { "linho", "Flax" },
-        };
-
-        /// <summary>
         /// Traduz o que o jogador digitou no <b>nome do prefab do item</b> que quer acumular.
-        /// Ordem: apelido → nome de prefab exato → nome localizado do item (pt-BR inclusive).
+        ///
+        /// <para>
+        /// Ordem: <b>lista curada</b> (<see cref="CompanionHarvestResources"/>: apelidos PT/EN, nome
+        /// do prefab e nome PT-BR) → nome de prefab exato no <see cref="ObjectDB"/> → nome
+        /// <i>localizado</i> do item no idioma do jogo. O fallback genérico garante que
+        /// <b>qualquer</b> nome de item continue funcionando, mesmo fora da lista curada.
+        /// </para>
         /// </summary>
         internal static bool TryResolveResource(string requested, out string resource, out string error)
         {
@@ -587,18 +531,22 @@ namespace ModAIValheim.Companion
                 return false;
             }
 
-            string folded = Fold(input);
-            string candidate = s_aliases.TryGetValue(folded, out string alias) ? alias : input;
+            // 1) Lista curada (é o que faz "pedra", "silex", "cobre" e "Madeira" caírem no item certo).
+            if (CompanionHarvestResources.TryResolve(input, out resource))
+            {
+                return true;
+            }
 
-            string prefab = FindItemPrefabName(candidate);
+            // 2) Fallback genérico: nome exato de prefab de item no ObjectDB.
+            string prefab = FindItemPrefabName(input);
             if (prefab != null)
             {
                 resource = prefab;
                 return true;
             }
 
-            // Última tentativa: nome localizado do item (ex.: "Madeira" no cliente em português).
-            string byLocalizedName = FindItemByLocalizedName(folded);
+            // 3) Última tentativa: nome localizado do item (ex.: "Madeira" no cliente em português).
+            string byLocalizedName = FindItemByLocalizedName(Fold(input));
             if (byLocalizedName != null)
             {
                 resource = byLocalizedName;
@@ -612,19 +560,23 @@ namespace ModAIValheim.Companion
             return false;
         }
 
-        /// <summary>Ajuda do comando (lista curta de apelidos + estado atual).</summary>
+        /// <summary>
+        /// Ajuda do comando: uso, estado atual e a lista curada de recursos (nomes localizados),
+        /// agrupada por categoria.
+        /// </summary>
         internal static List<string> GetHelp()
         {
             List<string> lines = new List<string>
             {
                 "[ModIA] modia_gather <recurso> [qtd] - inicia a coleta (ex.: modia_gather wood 20).",
                 "[ModIA] modia_stop - para a coleta e volta a seguir o jogador.",
-                "[ModIA] Recursos: wood/madeira, stone/pedra, resin, flint, raspberry, blueberries, " +
-                "mushroom, thistle, coal, copper, tin, iron, silver, obsidian, crystal, feathers...",
                 "[ModIA] Sem [qtd] o companheiro coleta enquanto houver nó no raio.",
                 $"[ModIA] Tecla {HarvestKey} inicia/para a coleta do recurso padrão " +
                 $"('{DefaultResource}', quantidade {DefaultAmount}).",
+                "[ModIA] Recursos conhecidos (também aceita qualquer nome de item):",
             };
+
+            lines.AddRange(CompanionHarvestResources.DescribeForHelp());
 
             if (_active)
             {
@@ -776,6 +728,27 @@ namespace ModAIValheim.Companion
             {
                 hud.ShowMessage(type, text);
             }
+        }
+
+        /// <summary>Momento (<see cref="Time.time"/>) do último aviso de ferramenta ausente.</summary>
+        private static float _lastToolWarnAt = -999f;
+
+        /// <summary>
+        /// Avisa no HUD que o recurso pedido exige uma ferramenta que o companheiro não tem
+        /// (ex.: picareta para pedra/minério). Rate-limited (5 s): o HUD não pode virar spam.
+        /// </summary>
+        internal static void NotifyMissingTool(string resource)
+        {
+            if (Time.time - _lastToolWarnAt < 5f)
+            {
+                return;
+            }
+
+            _lastToolWarnAt = Time.time;
+            ShowMessage(
+                $"Sem ferramenta capaz para {CompanionHarvestResources.DisplayName(resource)} " +
+                "(precisa de machado/picareta)",
+                MessageHud.MessageType.TopLeft);
         }
     }
 }

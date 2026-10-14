@@ -699,48 +699,54 @@ namespace ModAIValheim.Companion
 
             Vector3 nodePosition = node.transform.position;
             float distance = Vector3.Distance(nodePosition, transform.position);
-            CompanionHarvest.ReportDistance(node, distance);
 
-            switch (info.Kind)
+            if (info.Kind == HarvestNodeKind.ItemDrop)
             {
-                case HarvestNodeKind.ItemDrop:
-                    ApproachAndWork(dt, nodePosition, CompanionHarvest.InteractReach);
-                    if (distance <= CompanionHarvest.InteractReach)
-                    {
-                        PickupDropNode(node);
-                    }
+                CompanionHarvest.ReportDistance(node, distance);
+                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+                if (distance <= CompanionHarvest.InteractReach)
+                {
+                    PickupDropNode(node);
+                }
 
-                    break;
+                return;
+            }
 
-                case HarvestNodeKind.Pickable:
-                    ApproachAndWork(dt, nodePosition, CompanionHarvest.InteractReach);
-                    if (distance <= CompanionHarvest.InteractReach)
-                    {
-                        HarvestPickableNode(node);
-                    }
+            if (info.Kind == HarvestNodeKind.Pickable)
+            {
+                CompanionHarvest.ReportDistance(node, distance);
+                ApproachAndWork(dt, nodePosition + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+                if (distance <= CompanionHarvest.InteractReach)
+                {
+                    HarvestPickableNode(node);
+                }
 
-                    break;
+                return;
+            }
 
-                default:
-                    float reach = GetHarvestReach();
-                    ApproachAndWork(dt, nodePosition, reach);
-                    if (distance <= reach)
-                    {
-                        StrikeNode(node, nodePosition);
-                    }
+            // Fonte (árvore/tora/pedra/entulho): mira na superfície mais próxima do nó — a raiz de
+            // uma rocha grande pode estar no centro, longe da hitbox do golpe. O progresso passa a
+            // ser medido pela distância à superfície (a distância à raiz não cai ao chegar nela).
+            Vector3 aim = CompanionHarvestScanner.GetAimPoint(node, info, transform.position);
+            float aimDistance = Vector3.Distance(aim, transform.position);
+            CompanionHarvest.ReportDistance(node, aimDistance);
 
-                    break;
+            float reach = GetHarvestReach();
+            ApproachAndWork(dt, aim, reach);
+            if (aimDistance <= reach)
+            {
+                StrikeNode(node, aim);
             }
         }
 
         /// <summary>
-        /// Aproxima (ou para) e mira no nó. <paramref name="stopAt"/> é a distância em que paramos:
-        /// para ferramentas é o alcance do golpe, para itens/colhíveis é a distância de interação.
+        /// Aproxima (ou para) e mira no ponto. <paramref name="point"/> é o alvo da mira e do
+        /// deslocamento; <paramref name="stopAt"/> é a distância em que paramos (alcance da
+        /// ferramenta para golpe, distância de interação para itens/colhíveis).
         /// </summary>
         private void ApproachAndWork(float dt, Vector3 point, float stopAt)
         {
-            Vector3 aim = point + Vector3.up * 1f;
-            LookAt(aim);
+            LookAt(point);
 
             float distance = Vector3.Distance(point, transform.position);
             if (distance <= stopAt)
@@ -762,6 +768,18 @@ namespace ModAIValheim.Companion
         /// </summary>
         private GameObject AcquireHarvestNode()
         {
+            // Garante uma ferramenta de golpe no inventário (config Coleta/FornecerFerramentas):
+            // sem machado/picareta, pedra e minério nunca entram na conta — era o sintoma de
+            // "pedra não funciona" com o loadout padrão (só Club).
+            HarvestResourceCategory category;
+            bool mayNeedTool =
+                !CompanionHarvestResources.TryGetCategory(CompanionHarvest.ResourceName, out category) ||
+                category != HarvestResourceCategory.Pickable;
+            if (mayNeedTool)
+            {
+                CompanionInventory.EnsureHarvestTools(this, CompanionHarvest.ResourceName);
+            }
+
             CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
             HarvestPick pick = CompanionHarvestScanner.FindBestNode(
                 transform.position,
@@ -773,6 +791,13 @@ namespace ModAIValheim.Companion
             GameObject node = pick.Node;
             if (node == null)
             {
+                if (pick.NeedsBetterTool)
+                {
+                    // Avisa no HUD em vez de deixar o companheiro vagando: a razão mais comum de
+                    // "não coleta X" é não ter a ferramenta do tier certo.
+                    CompanionHarvest.NotifyMissingTool(CompanionHarvest.ResourceName);
+                }
+
                 _harvestEmptyScans++;
                 if (_harvestEmptyScans >= HarvestEmptyScansBeforeStop)
                 {
@@ -815,8 +840,8 @@ namespace ModAIValheim.Companion
             return node;
         }
 
-        /// <summary>Bate no nó (árvore/pedra/entulho) com a ferramenta equipada.</summary>
-        private void StrikeNode(GameObject node, Vector3 nodePosition)
+        /// <summary>Bate no nó (árvore/pedra/entulho) com a ferramenta equipada, mirando no ponto dado.</summary>
+        private void StrikeNode(GameObject node, Vector3 aim)
         {
             if (_harvestStrikeTimer > 0f || m_character.InAttack())
             {
@@ -829,7 +854,6 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            Vector3 aim = nodePosition + Vector3.up * 1f;
             if (!IsLookingAt(aim, MaxStrikeAngle))
             {
                 // Ainda girando para o alvo: o próximo tick tenta de novo.
