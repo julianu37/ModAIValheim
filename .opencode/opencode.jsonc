@@ -8,6 +8,10 @@
     "jotunn": {
       "repository": "Valheim-Modding/Jotunn",
       "description": "Fonte oficial do Jotunn (Managers, prefabs, itens, GUI, localização). Use para confirmar APIs do framework."
+    },
+    "offline-companions": {
+      "repository": "MaddhattrRocks/Offline-Companions-Reborn",
+      "description": "Mod companheiro (MIT, uso livre) para Valheim 1.0: IA de movimento/combate, jobs de coleta/farm/fish/hunt/cook/smelt/repair, UI (menu radial, painéis, HUD), patches. Consulte para ideias e implementação — ver docs/references.md."
     }
   },
   "mcp": {
