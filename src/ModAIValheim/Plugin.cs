@@ -16,6 +16,7 @@ namespace ModAIValheim
     /// peito/pernas renderiza e o NPC parece um viking.
     /// Fase 2.4a: modo de combate (Passive/Defensive/Aggressive) com seleção de alvo e revide.
     /// Fase 2.4b: coleta de recursos (madeira/pedra/itens) por comando e tecla.
+    /// Fase 2.6a: hover do companheiro com o nome e as ações disponíveis (teclas reais da config).
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -23,7 +24,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.7";
+        public const string PluginVersion = "0.2.8";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -63,6 +64,9 @@ namespace ModAIValheim
         private ConfigEntry<bool> _harvestPauseOnCombat;
         private ConfigEntry<bool> _harvestCollectDrops;
         private ConfigEntry<string> _harvestLayers;
+
+        // Interface (Fase 2.6a).
+        private ConfigEntry<bool> _hoverHints;
 
         private Harmony _harmony;
 
@@ -259,6 +263,15 @@ namespace ModAIValheim
                 "Camadas varridas na busca de nos (separadas por virgula). Ajuste se algum " +
                 "recurso nao for encontrado (ex.: inclua 'terrain' ou 'vehicle').");
 
+            // Interface (Fase 2.6a).
+            _hoverHints = Config.Bind(
+                "Interface",
+                "MostrarDicasNoHover",
+                true,
+                "Mostra, quando a mira estiver sobre o companheiro, o nome dele e a lista de acoes " +
+                "disponiveis com as teclas configuradas (modo de combate, coleta, invocar/dispensar). " +
+                "Desligado, o hover mostra so o nome.");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -310,6 +323,11 @@ namespace ModAIValheim
                 _harvestLayers);
 
             CompanionCommands.Register();
+
+            // Interface (Fase 2.6a): tokens de localização + dicas do hover do companheiro.
+            CompanionHover.RegisterLocalization();
+            CompanionHover.Configure(_hoverHints);
+
             ApplyHarmonyPatches();
             if (_logDetalhado.Value)
             {
@@ -353,6 +371,7 @@ namespace ModAIValheim
             }
 
             CompanionPrefab.Unhook();
+            CompanionHover.Shutdown();
             CompanionManager.Shutdown();
         }
     }

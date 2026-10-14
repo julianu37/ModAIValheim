@@ -29,6 +29,12 @@ namespace ModAIValheim.Companion
         /// </summary>
         internal static CompanionAI ActiveCompanion => GetCompanion();
 
+        /// <summary>Tecla de invocar (config <c>Teclas/SpawnKey</c>), como as demais teclas do mod.</summary>
+        internal static KeyCode SpawnKey => _spawnKey != null ? _spawnKey.Value : KeyCode.F1;
+
+        /// <summary>Tecla de dispensar (config <c>Teclas/DismissKey</c>).</summary>
+        internal static KeyCode DismissKey => _dismissKey != null ? _dismissKey.Value : KeyCode.H;
+
         internal static void Configure(ConfigEntry<KeyCode> spawnKey, ConfigEntry<KeyCode> dismissKey)
         {
             _spawnKey = spawnKey;

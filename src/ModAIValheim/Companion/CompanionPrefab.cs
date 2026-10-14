@@ -434,6 +434,11 @@ namespace ModAIValheim.Companion
             if (character != null)
             {
                 character.m_faction = Character.Faction.Players;
+
+                // Nome de exibição como token de localização (o mesmo esquema dos vanilla, ex.:
+                // '$enemy_boar'): Character.GetHoverName -> Localize(m_name) mostra "Companheiro"
+                // no hover, no EnemyHud e nas mensagens de interação (Fase 2.6a).
+                character.m_name = CompanionHover.NameToken;
             }
 
             ClearVanillaDefaultItems(prefab);

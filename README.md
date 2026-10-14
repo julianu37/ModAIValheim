@@ -4,8 +4,8 @@ Mod de **companheiro NPC com inteligência artificial** para **Valheim 1.0** (in
 recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`NOTICE.md`](NOTICE.md).
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
-> equipa itens, tem aparência de viking, combate e coleta recursos** (madeira, pedra, frutas…).
-> Ainda faltam **multiplayer**, **voz/IA** e **backend**.
+> equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, frutas…) e
+> mostra **nome + teclas no hover**. Ainda faltam **multiplayer**, **voz/IA** e **backend**.
 
 ---
 
@@ -37,6 +37,25 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
+
+### Hover do companheiro (Fase 2.6a)
+
+Com a **mira sobre o companheiro**, o tooltip do jogo (o mesmo que mostra "Madeira" ou "Javali
+(dócil)") mostra o nome e o mapa de teclas — tudo lido da configuração, então mudar uma tecla no
+`.cfg` muda o que aparece ali:
+
+```
+Companheiro
+[F3] Modo de combate: Defensivo
+[F4] Coleta: Madeira (desligada)
+[F1] Invocar / [H] Dispensar
+```
+
+- A coleta mostra o recurso que o `F4` vai coletar quando está **desligada** e o progresso quando
+  está **ligada** (`Coleta: Madeira (ligada, 12/20)`).
+- `[Interface] MostrarDicasNoHover = false` deixa só o nome no hover.
+- Funciona onde o hover do jogo funciona: mira no companheiro, a até ~5 m (mesma distância de
+  interação do jogo). Construções, itens e criaturas continuam com o hover normal.
 
 ### Coleta de recursos (Fase 2.4b)
 
@@ -75,6 +94,7 @@ até não haver mais nó no raio.
 - **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
   `PausarEmCombate`, `CatarDrops`, `Camadas`
+- **Interface** — `MostrarDicasNoHover`
 
 ---
 

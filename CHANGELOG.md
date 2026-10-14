@@ -3,6 +3,32 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.2.8] — 2026-10-13
+
+### Adicionado
+- **Hover do companheiro** (Fase 2.6a): com a mira sobre ele, o tooltip do jogo mostra o **nome**
+  e a **lista de ações com as teclas reais** do mod, em PT-BR:
+  `[F3] Modo de combate: Defensivo`, `[F4] Coleta: Madeira (desligada)` e
+  `[F1] Invocar / [H] Dispensar`.
+- Config `[Interface] MostrarDicasNoHover` (`bool`, padrão `true`): desligada, o hover mostra só o
+  nome do companheiro.
+- `CompanionHover` (estado + texto/cache do hover) e `CompanionHoverPatches` (Harmony): prefix em
+  `Character.GetHoverText` e `Character.GetHoverName`, **só** para o nosso companheiro.
+- Tokens de localização no `LocalizationManager` do Jotunn (`$modia_companion_name` e os rótulos das
+  ações), registrados em `Portuguese_Brazilian` e `English`, com fallback PT-BR em código.
+- Nome do companheiro no corpo (`m_name`) agora é o token de localização — o `EnemyHud`, as
+  mensagens de interação e qualquer UI que use `GetHoverName` passam a mostrar "Companheiro"
+  (antes o corpo herdava o nome do prefab `Player`).
+
+### Notas
+- O `Character.GetHoverText()` do jogo devolve string vazia para personagens sem `Tameable` (caso do
+  companheiro), por isso o texto vem de patch; personagens de outros mods/criaturas não são afetados
+  (o prefix só age quando o alvo tem `CompanionAI`, com fallback pelo nome do prefab via `ZNetView`).
+- O texto é montado apenas quando o estado muda (modo, coleta, teclas, config) e cacheado — o
+  `Hud.UpdateCrosshair` chama o hover por frame.
+- A tecla de menu do companheiro (Fase 2.6b) e as teclas de conversa/voz (Fase 3) entram no guia
+  quando existirem.
+
 ## [0.2.7] — 2026-10-13
 
 ### Corrigido

@@ -31,6 +31,9 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.4a | Combate: Passive/Defensive/Aggressive, seleção de alvo, revidar | ✅ |
 | 2.4b | Coleta de recursos (madeira/pedra/itens) | ✅ |
 | 2.4b-fix | Coleta de madeira: derrubar árvores (seguir a cascata tora→toras menores) + pontuação por rendimento real | ✅ |
+| **2.6** | **Interface** | 🔄 |
+| 2.6a | Hover do companheiro: nome + ações com as teclas (PT-BR, tokens de localização) | ✅ |
+| 2.6b | Menu do companheiro (painel Jotunn `GUIManager`) | ⏳ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -58,3 +61,6 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   segue a cadeia `TreeBase.m_logPrefab` → `TreeLog.m_subLogPrefab` (a madeira está nas toras, não na
   árvore) e a pontuação virou valor × esforço × distância, com diagnóstico por categoria em
   `Geral/LogDetalhado`.
+- **Fase 2.6a (0.2.8)** — **hover do companheiro**: patch em `Character.GetHoverText`/
+  `GetHoverName` (só para o NPC do mod) mostrando o nome e o mapa de teclas, com os rótulos em
+  tokens do `LocalizationManager` do Jotunn e o texto cacheado por mudança de estado.
