@@ -495,10 +495,13 @@ namespace ModAIValheim.Companion
         private static readonly List<HarvestToolProfile> s_toolBuffer = new List<HarvestToolProfile>();
 
         /// <summary>Conjunto padrão de ferramentas fornecidas quando o companheiro não tem nenhuma.</summary>
-        internal const string DefaultProvidedTools = "AxeStone,PickaxeAntler";
+        internal const string DefaultProvidedTools = "AxeStone,PickaxeAntler,PickaxeIron";
 
         /// <summary>Prefabs de ferramenta já avisados como inexistentes (evita spam no log).</summary>
         private static readonly HashSet<string> s_missingToolWarned = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Momento do último aviso de "nenhuma ferramenta da lista atende ao nó" (rate-limited).</summary>
+        private static float s_lastTierWarnAt = -999f;
 
         /// <summary>Fornecer ferramenta de coleta quando o companheiro não tem nenhuma (config).</summary>
         internal static bool ProvideTools => _provideTools == null || _provideTools.Value;
@@ -617,11 +620,131 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
+        /// Garante uma ferramenta <b>do tier exigido pelo nó</b> (item #8 da auditoria). Quando a
+        /// varredura acha um nó que renderia o recurso mas a ferramenta atual não arranha — típico de
+        /// prata/obsidiana (tier 2) com a picareta de chifre (tier 1) —, escolhe a <b>melhor</b>
+        /// ferramenta de <c>Coleta/FerramentasFornecidas</c> que atenda (tier ≥ mínimo e dano &gt; 0
+        /// contra as resistências do nó) e coloca no inventário.
+        ///
+        /// <para>
+        /// Não cria nada quando o companheiro já tem ferramenta que atende, nem quando a lista não
+        /// tem nada capaz (aí só avisa no log — o HUD continua avisando pelo
+        /// <see cref="CompanionHarvest.NotifyMissingTool"/>).
+        /// </para>
+        /// </summary>
+        /// <returns><c>true</c> quando uma ferramenta nova entrou no inventário (vale repetir a varredura).</returns>
+        internal static bool EnsureHarvestToolForNode(
+            CompanionAI companion,
+            string resourceName,
+            HitData.DamageModifiers modifiers,
+            int minToolTier)
+        {
+            if (!ProvideTools)
+            {
+                return false;
+            }
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                return false;
+            }
+
+            // Já existe ferramenta que atende (tier + dano contra as resistências do nó)?
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (!IsHarvestTool(item))
+                {
+                    continue;
+                }
+
+                if (item.m_shared.m_toolTier >= minToolTier &&
+                    CompanionHarvestScanner.EffectiveDamage(item.m_shared.m_damages, modifiers) > 0f)
+                {
+                    return false;
+                }
+            }
+
+            // "A melhor da lista que atenda": tier primeiro, dano efetivo como desempate.
+            GameObject best = null;
+            float bestRank = 0f;
+            string[] names = ProvidedToolPrefabs.Split(ListSeparator);
+            for (int i = 0; i < names.Length; i++)
+            {
+                string name = names[i].Trim();
+                if (name.Length == 0)
+                {
+                    continue;
+                }
+
+                GameObject prefab = FindToolPrefab(name);
+                ItemDrop drop = prefab != null ? prefab.GetComponent<ItemDrop>() : null;
+                if (drop == null || drop.m_itemData == null || drop.m_itemData.m_shared == null)
+                {
+                    continue;
+                }
+
+                ItemDrop.ItemData candidate = drop.m_itemData;
+                if (candidate.m_shared.m_toolTier < minToolTier)
+                {
+                    continue;
+                }
+
+                float damage = CompanionHarvestScanner.EffectiveDamage(
+                    candidate.m_shared.m_damages, modifiers);
+                if (damage <= 0f)
+                {
+                    continue;
+                }
+
+                float rank = candidate.m_shared.m_toolTier * 1000f + damage;
+                if (rank > bestRank)
+                {
+                    bestRank = rank;
+                    best = prefab;
+                }
+            }
+
+            if (best == null)
+            {
+                if (Time.time - s_lastTierWarnAt >= 5f)
+                {
+                    s_lastTierWarnAt = Time.time;
+                    Plugin.Log.LogWarning(
+                        $"[ModIA] Nenhuma ferramenta de 'Coleta/FerramentasFornecidas' atende ao nó " +
+                        $"de '{resourceName}' (tier mínimo {minToolTier}); inclua uma picareta/machado " +
+                        "de tier maior na lista (ex.: PickaxeIron).");
+                }
+
+                return false;
+            }
+
+            // Já está no inventário: não cria de novo (evita duplicar a cada varredura).
+            if (FindInInventory(inventory, best) != null)
+            {
+                return false;
+            }
+
+            if (AddItems(inventory, best, 1) == null)
+            {
+                return false;
+            }
+
+            Plugin.Log.LogInfo(
+                $"[ModIA] Ferramenta de coleta fornecida pelo tier: " +
+                $"'{Utils.GetPrefabName(best.name)}' (tier {best.GetComponent<ItemDrop>().m_itemData.m_shared.m_toolTier}, " +
+                $"mínimo do nó {minToolTier}) para '{resourceName}'.");
+            return true;
+        }
+
+        /// <summary>
         /// Procura o prefab de ferramenta sem poluir o log: nome inválido na config é avisado
         /// <b>uma vez</b> (a busca roda a cada varredura de coleta).
         /// </summary>
-        private static GameObject FindToolPrefab(string name)
-        {
+        private static GameObject FindToolPrefab(string name)        {
             ObjectDB database = ObjectDB.instance;
             GameObject prefab = database != null ? database.GetItemPrefab(name) : null;
             if (prefab != null)

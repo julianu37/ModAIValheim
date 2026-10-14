@@ -25,6 +25,9 @@ namespace ModAIValheim
     /// Fase 2.8: coleta ampliada — lista curada de materiais (madeira, pedra, minérios, colhíveis),
     /// dropdown de recurso no menu, mira na superfície das rochas e fornecimento automático da
     /// ferramenta de coleta (machado/picareta) quando falta.
+    /// Fase 2.9: correções de coleta — espera os drops nascerem antes de encerrar a tarefa (estado
+    /// dedicado de coleta de drops), segue a cópia "rachada" de uma rocha no mesmo ponto, mira a
+    /// tora da árvore que acabou de cair e fornece a ferramenta pelo tier exigido pelo nó.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -32,7 +35,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.3.1";
+        public const string PluginVersion = "0.3.2";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -304,9 +307,10 @@ namespace ModAIValheim
                 "FerramentasFornecidas",
                 CompanionInventory.DefaultProvidedTools,
                 "Prefabs de ferramenta que o mod pode fornecer (separados por virgula), do mais " +
-                "fraco ao mais forte. So a primeira de cada tipo (machado = dano de corte, picareta " +
-                "= dano de picareta) que faltar e criada. Ex.: AxeStone,PickaxeAntler. Para minerar " +
-                "prata/obsidiana (tier maior) inclua PickaxeIron.");
+                "fraco ao mais forte. Sem nenhuma, so a primeira de cada tipo (machado = dano de " +
+                "corte, picareta = dano de picareta) que faltar e criada. Quando o no escolhido " +
+                "exige um tier maior (prata/obsidiana), o mod cria a MELHOR da lista que atenda " +
+                "(ex.: PickaxeIron). Padrao: AxeStone,PickaxeAntler,PickaxeIron.");
 
             // Interface (Fase 2.6a).
             _hoverHints = Config.Bind(

@@ -119,7 +119,7 @@ Onde o estado fica guardado:
   (ou desligue `PersistirEntreSessoes` para não gravar em disco).
 - `modia_state` (console) mostra o que está guardado: itens, equipados, modo, origem e data.
 
-### Coleta de recursos (Fase 2.4b · ampliada na 2.8)
+### Coleta de recursos (Fase 2.4b · ampliada na 2.8 · corrigida na 2.9)
 
 O companheiro procura nós de coleta num raio (padrão 40 m), escolhe o de maior **valor esperado**
 (unidades do recurso pedido que o nó rende × esforço em golpes × distância), equipa a **ferramenta
@@ -127,17 +127,25 @@ adequada** (machado para madeira, picareta para pedra/minério — escolhida pel
 bate até destruir, **pega os drops** e segue para o próximo nó, repetindo até a **quantidade** pedida
 ou até não haver mais nó no raio.
 
-- **Madeira sai de árvore**: o companheiro derruba a árvore (`TreeBase`), depois parte as **toras**
-  que caem (`TreeLog`) — é nelas que a madeira está (uma Beech1 rende ~20 Wood). O rendimento é
-  estimado seguindo a cascata `m_logPrefab` → `m_subLogPrefab`, então a árvore ganha dos galhos
-  (`Pickable`) e dos itens avulsos no chão; esses continuam valendo como fonte quando não há árvore
-  por perto.
+- **Madeira sai de árvore**: o companheiro derruba a árvore (`TreeBase`) e **mira na hora a tora mais
+  próxima** (`TreeLog`, raio 12 m) — é nela que a madeira está (uma Beech1 rende ~20 Wood) — depois
+  parte as **toras menores** que ela gera (`m_subLogPrefab`). A cascata
+  `m_logPrefab` → `m_subLogPrefab` é o que faz a árvore ganhar dos galhos (`Pickable`) e dos itens
+  avulsos no chão; esses continuam valendo como fonte quando não há árvore por perto.
+- **Drops têm vez**: ao destruir um nó o companheiro **espera 0,5 s** (os drops levam alguns frames
+  para nascer), varre o ponto de destruição (raio de 8 m) e pega os itens um por um — a tarefa
+  **não** encerra mais por engano em ~1,5 s. A varredura de drops termina por **5 varreduras vazias
+  ou 5 s** e só então ele volta a procurar nós.
 - **Pedra e minério saem de rocha**: `MineRock`/`MineRock5` dropam por **área de golpe**, então o
   companheiro **mira na superfície** da rocha (não no centro da raiz) e reposiciona quando uma área
-  some — é o que faz os golpes conectarem em rochas grandes.
+  some — é o que faz os golpes conectarem em rochas grandes. Quando o jogo troca a rocha por uma
+  **cópia "rachada" no mesmo ponto** (`Destructible.m_spawnWhenDamaged`), ele continua na cópia em
+  vez de largar o nó (antes era "um golpe por pedra").
 - **Ferramenta**: quando falta machado ou picareta, o mod **fornece uma** do conjunto
-  `Coleta/FerramentasFornecidas` (padrão `AxeStone,PickaxeAntler`) e coloca no inventário do
-  companheiro — sem isso o loadout padrão (`Club`) não arranha pedra nenhuma. Desligue com
+  `Coleta/FerramentasFornecidas` (padrão `AxeStone,PickaxeAntler,PickaxeIron`) e coloca no inventário
+  do companheiro — sem isso o loadout padrão (`Club`) não arranha pedra nenhuma. Se o nó escolhido
+  exigir **tier maior** (prata/obsidiana), o mod fornece a **melhor ferramenta da lista que atenda**
+  (tier ≥ mínimo do nó e dano > 0 contra as resistências dele). Desligue com
   `Coleta/FornecerFerramentas = false`; sem ferramenta capaz, o HUD avisa e o nó **não** vira alvo
   (o companheiro não fica mais batendo à toa até travar).
 - **Recursos**: a lista curada da tabela abaixo resolve `modia_gather pedra`, `stone`, `Stone`,
@@ -172,13 +180,13 @@ mod **fornece** a ferramenta (config acima) ou avisa no HUD.
 | `Resin` (Resina) | madeira | drop de árvore (faia/pinheiro/abeto) | — | ✅ funciona |
 | `Stone` (Pedra) | pedra | pedrinhas (`Pickable`) e rochas grandes (`MineRock`/`MineRock5`) | picareta (tier 1) | ✅ funciona |
 | `Flint` (Sílex) | pedra | pedras de praia (`Pickable`) | — | ✅ funciona |
-| `Obsidian` (Obsidiana) | pedra | veios da montanha (`MineRock5`) | picareta (tier alto) | ✅ funciona (precisa da picareta certa) |
+| `Obsidian` (Obsidiana) | pedra | veios da montanha (`MineRock5`) | picareta (tier alto) | ✅ funciona (fornece a picareta do tier) |
 | `BlackMarble` (Mármore negro) | pedra | depósitos da Mistlands | picareta | ✅ funciona |
 | `Grausten` (Grausten) | pedra | depósitos de Ashlands | picareta | ✅ funciona |
 | `CopperOre` (Minério de cobre) | minério | depósito de cobre (`MineRock5`) | picareta (tier 1) | ✅ funciona |
 | `TinOre` (Minério de estanho) | minério | depósito de estanho (`MineRock5`) | picareta (tier 1) | ✅ funciona |
 | `IronScrap` (Sucata de ferro) | minério | pilhas de sucata do pântano (`MineRock`) | picareta (tier 1+) | ✅ funciona |
-| `SilverOre` (Minério de prata) | minério | veio de prata (`MineRock5`, precisa de *wishbone* p/ achar) | picareta (ferro ou melhor) | ✅ funciona (com picareta forte) |
+| `SilverOre` (Minério de prata) | minério | veio de prata (`MineRock5`, precisa de *wishbone* p/ achar) | picareta (ferro ou melhor) | ✅ funciona (fornece `PickaxeIron` pelo tier) |
 | `BlackMetalScrap` (Sucata de metal negro) | minério | depósito/campo de Fulings | picareta (metal negro) | ⚠️ depende de haver nó (ver ressalvas) |
 | `CopperScrap` (Sucata de cobre) | minério | depósitos (Mistlands/Ashlands) | picareta | ⚠️ depende de haver nó (ver ressalvas) |
 | `FlametalOreNew` (Minério de flametal) | minério | depósitos de Ashlands | picareta (tier alto) | ⚠️ depende de haver nó (ver ressalvas) |
@@ -285,8 +293,7 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
    Se faltar ferramenta, o mod cria a picareta (`Coleta/FornecerFerramentas`) e o log registra
    `Ferramenta de coleta fornecida ... 'PickaxeAntler'`.
 3. **Minério**: `modia_gather cobre 20` (perto de um depósito de cobre) e `modia_gather estanho 20`.
-   Com `Coleta/FerramentasFornecidas = AxeStone,PickaxeAntler,PickaxeIron` dá para testar
-   prata/obsidiana também.
+   Para prata/obsidiana (tier 2) o padrão já inclui `PickaxeIron` (ver o teste da 2.9 abaixo).
 4. **Menu**: **Y** com o companheiro a até 5 m → seção **Coleta** → escolha o recurso no **dropdown**
    (ex.: "Pedra", "Sílex", "Minério de cobre"), a quantidade e **Iniciar**. A opção **Outro…**
    revela o campo livre para digitar qualquer item.
@@ -295,6 +302,27 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 6. Para **spawnar** pedra/minério perto de você (para o teste): console (**F5**) do jogo —
    `spawn Pickable_Stone 10`, `spawn MineRock 3` (ou `spawn Rock_3 3`) e
    `spawn Pickable_Flint 5`; para minério, `spawn MineRock_Copper 1` / `spawn MineRock_Tin 1`.
+
+### Teste rápido das correções de coleta (Fase 2.9)
+
+1. **Árvore (fim do encerramento precoce)**: `modia_gather wood 20` numa floresta. Confira no log:
+   `alvo 'Beech1' (TreeBase …)` → depois de derrubar, `árvore caiu; mirando a tora mais próxima
+   'log'` (ou `'log_half'` para a tora partida) → ao quebrar a tora, `fim da coleta de drops (…)`.
+   A coleta deve durar até a **quantidade** ou até não haver mais nó — não pode parar com "nada foi
+   coletado" logo após o primeiro tombo.
+2. **Rocha "rachada"**: `modia_gather pedra 30` perto de pedras. O log deve mostrar
+   `'MineRock' trocado por uma cópia no mesmo ponto; continuando em '…'` e o companheiro **continua
+   batendo na mesma pedra** (antes dava um golpe por pedra e saía andando).
+3. **Drops**: com `Coleta/CatarDrops = true` (padrão), depois de destruir o nó o companheiro espera
+   ~0,5 s e vai atrás das madeiras/pedras no chão (`+Nx 'Wood' (…)` no log). Com
+   `Geral/LogDetalhado = true` dá para ver as varreduras de drops.
+4. **Prata com `PickaxeIron`**: vá para uma montanha, ative o *wishbone* e `modia_gather prata 20`
+   (ou `spawn MineRock_Silver 1` no console, se preferir). Com o padrão
+   `Coleta/FerramentasFornecidas = AxeStone,PickaxeAntler,PickaxeIron` o log deve registrar
+   `Ferramenta de coleta fornecida pelo tier: 'PickaxeIron' (tier 2, mínimo do nó 2)` e o alvo passa
+   a ser o veio — `modia_inv` mostra a picareta de ferro. Repita com `modia_gather obsidiana 10`.
+5. **Combate x coleta** continua valendo: em **Defensive/Aggressive** um inimigo pausa a coleta (a
+   espera pelos drops é retomada depois); em **Passive** ele ignora os inimigos.
 
 ---
 

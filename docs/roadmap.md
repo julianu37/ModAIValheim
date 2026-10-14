@@ -36,6 +36,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.6b | Menu do companheiro (painel Jotunn `GUIManager`): status, aparência ao vivo, combate, coleta e teclas | ✅ |
 | 2.7 | Persistência do companheiro: ao re-invocar (F1) volta o mesmo NPC (itens, equipamento, aparência e modo), com snapshot em memória + JSON opcional | ✅ |
 | 2.8 | Coleta ampliada: lista curada de materiais (pedra/minérios/colhíveis) + dropdown no menu + mira na rocha + ferramenta fornecida | ✅ |
+| 2.9 | Coleta: correções da auditoria (espera pelos drops, rocha "rachada", tora mais próxima, ferramenta por tier) | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -80,3 +81,10 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   campo livre "Outro…"), **mira na superfície** de rochas (`GetAimPoint`) para os golpes conectarem
   e **fornecimento automático de machado/picareta** quando falta (`Coleta/FornecerFerramentas`) —
   pedra e minério passam a funcionar de primeira. Tabela de materiais no `README`.
+- **Fase 2.9 (0.3.2)** — **correções de coleta da auditoria comparativa** (vs Offline Companions
+  Reborn, MIT): **estado dedicado de coleta de drops** (espera 0,5 s os drops nascerem e varre o
+  ponto de destruição; termina por 5 varreduras vazias ou 5 s — corrige o encerramento precoce em
+  ~1,5 s), **rocha "rachada"** (segue a cópia no mesmo ponto — fim do "um golpe por pedra"),
+  **tora mais próxima** (árvore derrubada → `TreeLog` imediata, preservando a cascata) e
+  **ferramenta por tier** (`PickaxeIron` no padrão + melhor ferramenta da lista que atenda ao nó,
+  o que destrava prata/obsidiana). Ver `docs/audit-vs-offline-companions.md`.

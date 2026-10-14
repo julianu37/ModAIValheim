@@ -35,5 +35,12 @@ SOFTWARE.
 ```
 
 > Se qualquer trecho de código derivado deste projeto for incorporado ao ModIA, **este aviso deve
-> permanecer** (obrigação da licença MIT). Até o momento, o ModIA usa o projeto apenas como
-> **referência de estudo/ideias**.
+> permanecer** (obrigação da licença MIT).
+>
+> Uso no ModIA (a licença MIT é mantida mesmo quando só a *lógica* é reaproveitada):
+>
+> - **Fase 2.9 (v0.3.2)** — as correções de coleta seguem a lógica de
+>   `src/Companions/Jobs/HarvestController.cs` (`UpdateCollectingDrops`, `_dropScanDelayTimer`,
+>   `TryFollowCrackedRock`) e de `src/Companions/Jobs/MHR_GatherRules.cs` (`NearestLog`,
+>   `DropCenter`). A implementação no ModIA é própria (adaptada ao modelo de estados do
+>   `CompanionAI` e aos buffers reaproveitados do `CompanionHarvestScanner`), sem cópia de arquivo.

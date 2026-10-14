@@ -86,11 +86,55 @@ namespace ModAIValheim.Companion
         /// <summary>Prefab da ferramenta escolhida para o nó atual (null = mão livre).</summary>
         private string _harvestTool;
 
+        // --- Fase 2.9: estado de coleta de drops (#1/#9) e "último nó conhecido" (#3/#16) -------
+        /// <summary>True enquanto o companheiro está no estado dedicado de coleta de drops.</summary>
+        private bool _collectingDrops;
+
+        /// <summary>Drop que o companheiro está indo pegar agora (null = varrendo o ponto).</summary>
+        private GameObject _dropTarget;
+
+        /// <summary>Ponto onde o último nó foi destruído (centro da varredura de drops).</summary>
+        private Vector3 _lastDestroyPos;
+
+        private float _dropTimer;
+        private float _dropScanTimer;
+        private float _dropScanDelayTimer;
+        private int _dropEmptyScans;
+
+        /// <summary>Posição do último nó em trabalho (para achar a cópia "rachada" e os drops).</summary>
+        private Vector3 _lastNodePosition;
+
+        /// <summary>Tipo do último nó em trabalho (None = não há nó para "seguir o rastro").</summary>
+        private HarvestNodeKind _lastNodeKind = HarvestNodeKind.None;
+
         /// <summary>Varreduras seguidas sem achar nada antes de encerrar a coleta.</summary>
         private const int HarvestEmptyScansBeforeStop = 3;
 
         /// <summary>Intervalo (s) entre interações (colher/pegar item).</summary>
         private const float HarvestInteractInterval = 0.3f;
+
+        // --- Fase 2.9: coleta de drops, rocha "rachada" e tora -----------------
+
+        /// <summary>
+        /// Espera (s) antes de varrer os drops: eles levam alguns frames para nascer depois de o nó
+        /// ser destruído (é o <c>_dropScanDelayTimer</c> da referência, item #1 da auditoria).
+        /// </summary>
+        private const float DropScanDelay = 0.5f;
+
+        /// <summary>Teto (s) do estado de coleta de drops: nunca deixa o companheiro vagando (item #1).</summary>
+        private const float DropTimeout = 5f;
+
+        /// <summary>Varreduras vazias consecutivas de drops antes de voltar a procurar nós (item #1/#9).</summary>
+        private const int DropEmptyScansBeforeStop = 5;
+
+        /// <summary>Raio (m) da varredura de drops em volta do ponto de destruição (item #9).</summary>
+        private const float DropScanRadius = 8f;
+
+        /// <summary>Raio (m) em que procuramos a tora da árvore que acabou de cair (item #16).</summary>
+        private const float TreeLogFollowRadius = 12f;
+
+        /// <summary>Raio (m) em que procuramos a cópia "rachada" de uma rocha (item #3).</summary>
+        private const float CrackedRockRadius = 2.5f;
 
         /// <summary>Alvo seguido atualmente (normalmente o jogador local).</summary>
         public GameObject FollowTarget => _followTarget;
@@ -617,13 +661,7 @@ namespace ModAIValheim.Companion
             {
                 if (_harvestWasActive)
                 {
-                    _harvestWasActive = false;
-                    _harvestScanTimer = 0f;
-                    _harvestStrikeTimer = 0f;
-                    _harvestInteractTimer = 0f;
-                    _harvestEmptyScans = 0;
-                    _harvestTool = null;
-                    RestoreFollowTarget();
+                    ResetHarvestState();
                 }
 
                 return;
@@ -640,13 +678,23 @@ namespace ModAIValheim.Companion
             if (CompanionHarvest.PauseOnCombat && GetTargetCreature() != null)
             {
                 CompanionHarvest.PauseForCombat();
+                ForgetNode();
                 RestoreFollowTarget();
                 return;
             }
 
             CompanionHarvest.ResumeFromCombat();
 
-            // 2) O nó atual ainda existe/serve? (destruído, colhido, tipo errado, longe do jogador)
+            // 2) Estado dedicado de COLETA DE DROPS (Fase 2.9, itens #1/#9). Depois de destruir um
+            //    nó os drops levam alguns frames para nascer: em vez de contar uma varredura vazia na
+            //    hora (e encerrar a tarefa em ~1,5 s), esperamos e varremos o ponto de destruição.
+            //    Enquanto ele está no comando, não procuramos nós novos.
+            if (_collectingDrops && UpdateDropCollection(dt))
+            {
+                return;
+            }
+
+            // 3) O nó atual ainda existe/serve? (destruído, colhido, tipo errado, longe do jogador)
             GameObject node = CompanionHarvest.Node;
             if (node != null && !CompanionHarvestScanner.IsStillValidNode(node, CompanionHarvest.ResourceName))
             {
@@ -655,25 +703,41 @@ namespace ModAIValheim.Companion
                 _harvestScanTimer = 0f;
             }
 
+            // 4) O nó que estávamos trabalhando sumiu: pode ter sido destruído (os drops vêm a
+            //    caminho), trocado por uma cópia "rachada" no mesmo ponto (#3) ou derrubado (a tora
+            //    entrou no lugar, #16). Resolve isso antes de sair varrendo de novo.
+            if (node == null && _lastNodeKind != HarvestNodeKind.None)
+            {
+                node = ResolveGoneNode();
+                if (node == null)
+                {
+                    // Nada para continuar ali: a coleta de drops (ou a próxima varredura) assume.
+                    RestoreFollowTarget();
+                    return;
+                }
+            }
+
             if (node != null && _followTarget != null &&
                 Vector3.Distance(node.transform.position, _followTarget.transform.position) >
                 CompanionHarvest.MaxNodeDistanceFromFollowTarget)
             {
                 CompanionHarvest.ClearNode("jogador se afastou do nó");
+                ForgetNode();
                 node = null;
                 _harvestScanTimer = 0f;
             }
 
-            // 3) Travou? (não chega, bate e não sai dano, construção no caminho…)
+            // 5) Travou? (não chega, bate e não sai dano, construção no caminho…)
             if (node != null && CompanionHarvest.ShouldGiveUpNode(out string stuckReason))
             {
                 CompanionHarvest.BlacklistNode(node, stuckReason);
+                ForgetNode();
                 node = null;
                 _harvestScanTimer = 0f;
                 _harvestTool = null;
             }
 
-            // 4) Sem nó: segue o jogador enquanto espera a próxima varredura.
+            // 6) Sem nó: segue o jogador enquanto espera a próxima varredura.
             if (node == null)
             {
                 if (_harvestScanTimer > 0f)
@@ -694,10 +758,17 @@ namespace ModAIValheim.Companion
             if (!CompanionHarvestScanner.TryGetInfo(node, out HarvestPrefabInfo info))
             {
                 CompanionHarvest.ClearNode("prefab não classificado");
+                ForgetNode();
                 return;
             }
 
             Vector3 nodePosition = node.transform.position;
+
+            // "Último nó conhecido": se ele sumir (destruído ou trocado), é daqui que procuramos a
+            // cópia "rachada" (#3), a tora da árvore (#16) e os drops (#1/#9).
+            _lastNodeKind = info.Kind;
+            _lastNodePosition = nodePosition;
+
             float distance = Vector3.Distance(nodePosition, transform.position);
 
             if (info.Kind == HarvestNodeKind.ItemDrop)
@@ -737,6 +808,215 @@ namespace ModAIValheim.Companion
             {
                 StrikeNode(node, aim);
             }
+        }
+
+        /// <summary>
+        /// Zera o estado da camada de coleta quando a tarefa deixa de estar ativa (ou é reiniciada).
+        /// </summary>
+        private void ResetHarvestState()
+        {
+            _harvestWasActive = false;
+            _harvestScanTimer = 0f;
+            _harvestStrikeTimer = 0f;
+            _harvestInteractTimer = 0f;
+            _harvestEmptyScans = 0;
+            _harvestTool = null;
+            _collectingDrops = false;
+            _dropTarget = null;
+            _dropTimer = 0f;
+            _dropScanTimer = 0f;
+            _dropScanDelayTimer = 0f;
+            _dropEmptyScans = 0;
+            ForgetNode();
+            RestoreFollowTarget();
+        }
+
+        /// <summary>
+        /// Esquece o "último nó conhecido". Usado quando o nó é largado por <b>decisão nossa</b>
+        /// (combate, jogador se afastou, travamento, nó consumido) — e não porque foi destruído:
+        /// nesse caso o rastro (<see cref="ResolveGoneNode"/>) é justamente o que interessa.
+        /// </summary>
+        private void ForgetNode()
+        {
+            _lastNodeKind = HarvestNodeKind.None;
+            _lastNodePosition = Vector3.zero;
+        }
+
+        /// <summary>
+        /// O nó que o companheiro estava trabalhando sumiu (destruído, colhido ou trocado pelo
+        /// jogo). Tenta continuar no <b>mesmo lugar</b>, na ordem:
+        /// <list type="number">
+        ///   <item><description><b>#3 — rocha "rachada"</b>: no 1º golpe o jogo troca muitos nós por
+        ///   uma cópia no mesmo ponto (<c>Destructible.m_spawnWhenDamaged</c>). Sem isto o companheiro
+        ///   lia "destruído", saía varrendo e dava <i>um golpe por pedra</i>.</description></item>
+        ///   <item><description><b>#16 — tora da árvore</b>: a árvore derrubada gera a tora onde caiu
+        ///   e é nela que a madeira está; a tora partida gera as toras menores. Mirar a mais próxima
+        ///   evita andar a esmo e preserva a cascata <c>TreeBase → TreeLog → m_subLogPrefab</c>.</description></item>
+        ///   <item><description><b>#1/#9 — drops</b>: sem nada para continuar, entra no estado de
+        ///   coleta de drops, que espera eles nascerem antes de contar varredura vazia.</description></item>
+        /// </list>
+        /// </summary>
+        /// <returns>Nó substituto, ou <c>null</c> quando a coleta de drops (ou a próxima varredura) assume.</returns>
+        private GameObject ResolveGoneNode()
+        {
+            HarvestNodeKind kind = _lastNodeKind;
+            Vector3 position = _lastNodePosition;
+            _lastNodeKind = HarvestNodeKind.None;
+
+            // #3 — rocha/entulho "rachado" no mesmo ponto.
+            if (kind == HarvestNodeKind.MineRock ||
+                kind == HarvestNodeKind.MineRock5 ||
+                kind == HarvestNodeKind.Destructible)
+            {
+                GameObject cracked = CompanionHarvestScanner.FindCrackedNode(
+                    position, CompanionHarvest.ResourceName, CrackedRockRadius);
+                if (cracked != null)
+                {
+                    Plugin.Log.LogInfo(
+                        $"[ModIA] Coleta: '{kind}' trocado por uma cópia no mesmo ponto; " +
+                        $"continuando em '{cracked.name}'.");
+                    CompanionHarvest.SetNode(cracked);
+                    return cracked;
+                }
+            }
+
+            // #16 — árvore derrubada: mira a tora mais próxima. Vale também para a tora que foi
+            // partida (o jogo gera as toras menores — `TreeLog.m_subLogPrefab`), preservando a
+            // cascata TreeBase -> TreeLog -> toras menores, que é o que faz a árvore render madeira.
+            if (kind == HarvestNodeKind.TreeBase || kind == HarvestNodeKind.TreeLog)
+            {
+                GameObject log = CompanionHarvestScanner.FindNearestTreeLog(
+                    transform.position, CompanionHarvest.ResourceName, TreeLogFollowRadius);
+                if (log != null)
+                {
+                    Plugin.Log.LogInfo(
+                        $"[ModIA] Coleta: '{kind}' partido; mirando a tora mais próxima '{log.name}'.");
+                    CompanionHarvest.SetNode(log);
+                    return log;
+                }
+            }
+
+            // #1/#9 — nada para continuar: os drops levam alguns frames para nascer.
+            if (CompanionHarvest.CollectDrops && kind != HarvestNodeKind.ItemDrop)
+            {
+                BeginDropCollection(position);
+            }
+
+            return null;
+        }
+
+        /// <summary>Entra no estado dedicado de coleta de drops em volta do ponto de destruição.</summary>
+        private void BeginDropCollection(Vector3 position)
+        {
+            _collectingDrops = true;
+            _dropTarget = null;
+            _lastDestroyPos = position;
+            _dropTimer = 0f;
+            _dropScanTimer = 0f;
+            _dropScanDelayTimer = DropScanDelay;
+            _dropEmptyScans = 0;
+        }
+
+        /// <summary>
+        /// Sai do estado de coleta de drops e devolve o comando à busca de nós (com o contador de
+        /// varreduras vazias zerado: a espera pelos drops não pode contar como "acabou o recurso").
+        /// </summary>
+        private void EndDropCollection(string reason)
+        {
+            if (!_collectingDrops)
+            {
+                return;
+            }
+
+            _collectingDrops = false;
+            _dropTarget = null;
+            _dropEmptyScans = 0;
+            _harvestEmptyScans = 0;
+            _harvestScanTimer = 0f;
+            Plugin.Log.LogInfo(
+                $"[ModIA] Coleta: fim da coleta de drops ({reason}); voltando a procurar nós.");
+        }
+
+        /// <summary>
+        /// Estado de <b>coleta de drops</b> (itens #1/#9). Espera <see cref="DropScanDelay"/> (os
+        /// drops ainda estão nascendo), varre o ponto de destruição em <see cref="DropScanRadius"/>
+        /// atrás de <c>ItemDrop</c> do recurso pedido e vai pegando um por um. Termina por
+        /// <see cref="DropEmptyScansBeforeStop"/> varreduras vazias consecutivas <b>ou</b> por
+        /// <see cref="DropTimeout"/> segundos — sempre com limite, para não vagar para sempre.
+        /// </summary>
+        /// <returns><c>true</c> enquanto a coleta de drops está no comando do companheiro.</returns>
+        private bool UpdateDropCollection(float dt)
+        {
+            _dropTimer += dt;
+
+            if (_dropScanDelayTimer > 0f)
+            {
+                _dropScanDelayTimer -= dt;
+                RestoreFollowTarget();
+                return true;
+            }
+
+            if (_dropTarget == null || !IsPickableDrop(_dropTarget))
+            {
+                if (_dropTarget != null)
+                {
+                    // Alvo inválido (item preso no piche, sumiu): veta para não varrer de novo.
+                    CompanionHarvestScanner.Blacklist(_dropTarget, CompanionHarvest.BlacklistSeconds);
+                    _dropTarget = null;
+                }
+
+                _dropScanTimer -= dt;
+                if (_dropScanTimer > 0f)
+                {
+                    RestoreFollowTarget();
+                    return true;
+                }
+
+                _dropScanTimer = CompanionHarvest.ScanInterval;
+                _dropTarget = CompanionHarvestScanner.FindNearestDrop(
+                    _lastDestroyPos, CompanionHarvest.ResourceName, DropScanRadius);
+
+                if (_dropTarget == null)
+                {
+                    _dropEmptyScans++;
+                    if (_dropEmptyScans < DropEmptyScansBeforeStop && _dropTimer < DropTimeout)
+                    {
+                        RestoreFollowTarget();
+                        return true;
+                    }
+
+                    EndDropCollection($"{_dropEmptyScans} varredura(s) vazia(s) em {_dropTimer:0.#} s");
+                    return false;
+                }
+
+                _dropEmptyScans = 0;
+
+                // O drop entra no follow do motor nativo (mesmo caminho do nó da varredura): é ele
+                // que faz o pathfinding até o item; o ApproachAndWork aperta o raio de parada.
+                base.SetFollowTarget(_dropTarget);
+            }
+
+            Vector3 point = _dropTarget.transform.position;
+            float distance = Vector3.Distance(point, transform.position);
+            ApproachAndWork(dt, point + Vector3.up * 0.6f, CompanionHarvest.InteractReach);
+            if (distance <= CompanionHarvest.InteractReach)
+            {
+                PickupDropNode(_dropTarget);
+            }
+
+            return true;
+        }
+
+        /// <summary>Item no chão ainda pegável (existe e não está preso no piche).</summary>
+        private static bool IsPickableDrop(GameObject drop)
+        {
+            if (drop == null)
+            {
+                return false;
+            }
+
+            ItemDrop item = drop.GetComponent<ItemDrop>();
+            return item != null && !item.InTar();
         }
 
         /// <summary>
@@ -787,6 +1067,22 @@ namespace ModAIValheim.Companion
                 CompanionHarvest.ScanRadius,
                 CompanionHarvest.CollectDrops,
                 _harvestTools);
+
+            // Item #8: há nó do recurso no raio, mas ele exige uma ferramenta de tier maior do que o
+            // companheiro tem (ex.: prata/obsidiana com a picareta de chifre). Fornece a MELHOR
+            // ferramenta da lista configurada que atenda ao nó e repete a varredura UMA vez.
+            if (pick.Node == null && pick.NeedsBetterTool && pick.RequiredTier >= 0 &&
+                CompanionInventory.EnsureHarvestToolForNode(
+                    this, CompanionHarvest.ResourceName, pick.RequiredModifiers, pick.RequiredTier))
+            {
+                CompanionInventory.GetHarvestToolProfiles(this, _harvestTools);
+                pick = CompanionHarvestScanner.FindBestNode(
+                    transform.position,
+                    CompanionHarvest.ResourceName,
+                    CompanionHarvest.ScanRadius,
+                    CompanionHarvest.CollectDrops,
+                    _harvestTools);
+            }
 
             GameObject node = pick.Node;
             if (node == null)
@@ -943,13 +1239,13 @@ namespace ModAIValheim.Companion
             Humanoid humanoid = m_character as Humanoid;
             if (drop == null || humanoid == null)
             {
-                CompanionHarvest.ClearNode("sem ItemDrop/Humanoid");
+                ReleaseDropOrNode(node, "sem ItemDrop/Humanoid");
                 return;
             }
 
             if (drop.InTar())
             {
-                CompanionHarvest.BlacklistNode(node, "item preso no piche");
+                ReleaseDropOrNode(node, "item preso no piche");
                 return;
             }
 
@@ -978,9 +1274,34 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            CompanionHarvest.ClearNode(null);
-            _harvestScanTimer = 0f; // o próximo drop do monte pode estar a um passo: varre já
+            ReleaseDropOrNode(node, null);
             CompanionHarvest.NotifyCollected(stack, prefabName);
+        }
+
+        /// <summary>
+        /// O drop foi consumido (ou não serve mais): solta o alvo do <b>estado de drops</b> e/ou o
+        /// nó da <b>busca de nós</b>, sem mexer no outro. Alvo descartado com motivo vai para a
+        /// lista negra (senão a varredura o acharia de novo até o estado expirar).
+        /// </summary>
+        private void ReleaseDropOrNode(GameObject node, string reason)
+        {
+            if (node == _dropTarget)
+            {
+                if (reason != null)
+                {
+                    CompanionHarvestScanner.Blacklist(node, CompanionHarvest.BlacklistSeconds);
+                }
+
+                _dropTarget = null;
+                _dropScanTimer = 0f; // o próximo drop do monte pode estar a um passo: varre já
+            }
+
+            if (node == CompanionHarvest.Node)
+            {
+                CompanionHarvest.ClearNode(reason);
+                _harvestScanTimer = 0f;
+                ForgetNode();
+            }
         }
 
         /// <summary>Alcance (m) em que consideramos o nó ao alcance da ferramenta equipada.</summary>

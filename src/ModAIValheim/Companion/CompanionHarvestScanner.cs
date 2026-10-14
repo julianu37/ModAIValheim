@@ -146,6 +146,16 @@ namespace ModAIValheim.Companion
         /// </summary>
         public bool NeedsBetterTool;
 
+        /// <summary>
+        /// Menor <c>m_minToolTier</c> entre os nós que a ferramenta disponível <b>não</b> arranha
+        /// (-1 = nenhum). É o que a IA usa para fornecer a ferramenta certa da lista configurada
+        /// (item #8) e repetir a varredura.
+        /// </summary>
+        public int RequiredTier;
+
+        /// <summary>Resistências do nó travado por falta de ferramenta (escolhe a melhor da lista).</summary>
+        public HitData.DamageModifiers RequiredModifiers;
+
         /// <summary>Descrição da varredura (candidatos, distância, score), montada pelo scanner.</summary>
         public string Reason;
     }
@@ -195,6 +205,16 @@ namespace ModAIValheim.Companion
         /// <summary>Raio (m) de construção do jogador que desqualifica um nó.</summary>
         private const float PlayerBuildAvoidRadius = 2.5f;
 
+        /// <summary>
+        /// Tolerância (m) entre a posição do último nó e a cópia "rachada" que o jogo põe no lugar
+        /// dele (<c>Destructible.m_spawnWhenDamaged</c>, item #3 da auditoria). A cópia nasce na
+        /// mesma posição; a folga cobre o assentamento de física de um frame.
+        /// </summary>
+        private const float CrackedPositionTolerance = 1f;
+
+        /// <summary>Tamanho do buffer das sondagens pontuais (drops, tora, rocha rachada).</summary>
+        private const int ProbeBufferSize = 128;
+
         /// <summary>Categorias contadas na telemetria da varredura (índice = <see cref="HarvestNodeKind"/>).</summary>
         private const int KindCount = (int)HarvestNodeKind.Destructible + 1;
 
@@ -237,6 +257,13 @@ namespace ModAIValheim.Companion
         private static readonly List<HarvestDrop> s_drops = new List<HarvestDrop>();
         private static readonly RaycastHit[] s_rayHits = new RaycastHit[8];
         private static readonly StringBuilder s_diag = new StringBuilder(512);
+
+        // Sondagens pontuais (Fase 2.9): drops no ponto de destruição (#1/#9), cópia "rachada" de
+        // rocha (#3) e tora da árvore derrubada (#16). Buffers reaproveitados — nada é alocado por
+        // chamada (elas rodam no tick da IA).
+        private static readonly Collider[] s_probeColliders = new Collider[ProbeBufferSize];
+        private static readonly HashSet<int> s_probeSeen = new HashSet<int>();
+        private static readonly List<GameObject> s_probeNodes = new List<GameObject>(64);
 
         // Telemetria da última varredura (por categoria e por motivo de descarte).
         private static readonly int[] s_kindSeen = new int[KindCount];
@@ -308,6 +335,7 @@ namespace ModAIValheim.Companion
         {
             HarvestPick pick = default;
             pick.ToolTier = -1;
+            pick.RequiredTier = -1;
 
             if (string.IsNullOrEmpty(resource))
             {
@@ -483,6 +511,15 @@ namespace ModAIValheim.Companion
                 if (NeedsTool(info.Kind) && !breakable)
                 {
                     s_scanNoTool++;
+
+                    // Guarda o tier exigido (e as resistências) do nó travado: é com isso que a IA
+                    // fornece a melhor ferramenta da lista configurada e repete a varredura (#8).
+                    if (pick.RequiredTier < 0 || info.MinToolTier < pick.RequiredTier)
+                    {
+                        pick.RequiredTier = info.MinToolTier;
+                        pick.RequiredModifiers = info.Modifiers;
+                    }
+
                     continue;
                 }
 
@@ -539,6 +576,194 @@ namespace ModAIValheim.Companion
         {
             ItemDrop drop = node != null ? node.GetComponent<ItemDrop>() : null;
             return drop != null && drop.m_itemData != null ? Mathf.Max(1, drop.m_itemData.m_stack) : 1;
+        }
+
+        // ---------------------------------------------------------------------
+        // Sondagens pontuais (Fase 2.9): drops (#1/#9), rocha "rachada" (#3) e tora (#16)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// <c>ItemDrop</c> do recurso pedido mais próximo de <paramref name="origin"/> — é a varredura
+        /// do estado de coleta de drops, feita em volta do ponto onde o nó foi destruído (itens
+        /// #1/#9). Só devolve item ainda pegável (fora do piche, fora d'água) e não vetado.
+        /// </summary>
+        internal static GameObject FindNearestDrop(Vector3 origin, string resource, float radius)
+        {
+            if (string.IsNullOrEmpty(resource))
+            {
+                return null;
+            }
+
+            int resourceHash = resource.GetStableHashCode();
+            CollectProbeNodes(origin, radius);
+
+            GameObject best = null;
+            float bestDistance = float.MaxValue;
+            for (int i = 0; i < s_probeNodes.Count; i++)
+            {
+                GameObject node = s_probeNodes[i];
+                if (!TryGetInfo(node, out HarvestPrefabInfo info) ||
+                    info.Kind != HarvestNodeKind.ItemDrop)
+                {
+                    continue;
+                }
+
+                Vector3 position = node.transform.position;
+                if (EstimateYield(node, info, resourceHash) <= 0f ||
+                    !IsHarvestableNow(node, info.Kind) ||
+                    IsUnderwater(position))
+                {
+                    continue;
+                }
+
+                float distance = Vector3.Distance(position, origin);
+                if (distance <= radius && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = node;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Cópia "rachada" de uma rocha <b>no mesmo ponto</b> do nó que o companheiro acabava de
+        /// golpear (item #3): o jogo troca muitos nós por uma cópia no 1º golpe
+        /// (<c>Destructible.m_spawnWhenDamaged</c>) e, sem isto, a IA lia "destruído", saía varrendo
+        /// e dava <i>um golpe por pedra</i>. Só aceita <see cref="MineRock"/>,
+        /// <see cref="MineRock5"/> e <see cref="Destructible"/> praticamente na posição do último nó.
+        /// </summary>
+        internal static GameObject FindCrackedNode(Vector3 position, string resource, float radius)
+        {
+            if (string.IsNullOrEmpty(resource))
+            {
+                return null;
+            }
+
+            int resourceHash = resource.GetStableHashCode();
+            CollectProbeNodes(position, radius);
+
+            GameObject best = null;
+            float bestDistance = float.MaxValue;
+            for (int i = 0; i < s_probeNodes.Count; i++)
+            {
+                GameObject node = s_probeNodes[i];
+                if (!TryGetInfo(node, out HarvestPrefabInfo info))
+                {
+                    continue;
+                }
+
+                if (info.Kind != HarvestNodeKind.MineRock &&
+                    info.Kind != HarvestNodeKind.MineRock5 &&
+                    info.Kind != HarvestNodeKind.Destructible)
+                {
+                    continue;
+                }
+
+                float distance = Vector3.Distance(node.transform.position, position);
+                if (distance > CrackedPositionTolerance)
+                {
+                    continue;
+                }
+
+                if (EstimateYield(node, info, resourceHash) <= 0f ||
+                    !IsHarvestableNow(node, info.Kind))
+                {
+                    continue;
+                }
+
+                if (distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = node;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// <see cref="TreeLog"/> mais próxima (item #16): a árvore derrubada gera a tora onde caiu e é
+        /// nela que a madeira está. Mirar a mais próxima logo depois do tombo evita o companheiro
+        /// sair andando a esmo até a próxima varredura.
+        /// </summary>
+        internal static GameObject FindNearestTreeLog(Vector3 origin, string resource, float radius)
+        {
+            if (string.IsNullOrEmpty(resource))
+            {
+                return null;
+            }
+
+            int resourceHash = resource.GetStableHashCode();
+            CollectProbeNodes(origin, radius);
+
+            GameObject best = null;
+            float bestDistance = float.MaxValue;
+            for (int i = 0; i < s_probeNodes.Count; i++)
+            {
+                GameObject node = s_probeNodes[i];
+                if (!TryGetInfo(node, out HarvestPrefabInfo info) ||
+                    info.Kind != HarvestNodeKind.TreeLog)
+                {
+                    continue;
+                }
+
+                Vector3 position = node.transform.position;
+                if (EstimateYield(node, info, resourceHash) <= 0f ||
+                    !IsHarvestableNow(node, info.Kind) ||
+                    IsUnderwater(position))
+                {
+                    continue;
+                }
+
+                float distance = Vector3.Distance(position, origin);
+                if (distance <= radius && distance < bestDistance)
+                {
+                    bestDistance = distance;
+                    best = node;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Preenche <see cref="s_probeNodes"/> com as raízes de mundo (com <see cref="ZNetView"/>,
+        /// sem construção/contêiner) dentro do raio, sem repetição e sem os vetados. Buffer
+        /// reaproveitado: nenhuma alocação por chamada.
+        /// </summary>
+        private static void CollectProbeNodes(Vector3 origin, float radius)
+        {
+            EnsureMasks();
+            s_probeNodes.Clear();
+            s_probeSeen.Clear();
+
+            int count = Physics.OverlapSphereNonAlloc(
+                origin, radius, s_probeColliders, s_resourceMask, QueryTriggerInteraction.Collide);
+            count = Mathf.Min(count, s_probeColliders.Length);
+
+            for (int i = 0; i < count; i++)
+            {
+                Collider collider = s_probeColliders[i];
+                if (collider == null)
+                {
+                    continue;
+                }
+
+                GameObject node = ResolveNode(collider);
+                if (node == null || !s_probeSeen.Add(node.GetInstanceID()))
+                {
+                    continue;
+                }
+
+                if (s_blacklist.ContainsKey(node.GetInstanceID()))
+                {
+                    continue;
+                }
+
+                s_probeNodes.Add(node);
+            }
         }
 
         /// <summary>Buffer reaproveitado da busca de colliders de um nó (nunca alocado em jogo).</summary>

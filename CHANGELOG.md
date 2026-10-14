@@ -3,6 +3,57 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.3.2] — 2026-10-13
+
+### Corrigido
+- **Coleta: encerramento precoce ao destruir um nó** (Fase 2.9, item #1 da
+  [auditoria](docs/audit-vs-offline-companions.md)): ao quebrar árvore/pedra os drops levam alguns
+  frames para nascer e a varredura imediata podia não achar nada — a tarefa encerrava em ~1,5 s
+  (3 varreduras vazias). Agora existe um **estado dedicado de coleta de drops**
+  (`CollectingDrops`): depois de destruir o nó o companheiro espera **0,5 s** e varre o **ponto de
+  destruição** (raio de 8 m) atrás do `ItemDrop` do recurso pedido, pegando um por um. O estado
+  termina por **5 varreduras vazias consecutivas OU 5 s** — sempre com limite, sem "vagar para
+  sempre" — e só então a busca de nós volta, com o contador de varreduras vazias **zerado** (a
+  espera pelos drops não pode contar como "acabou o recurso").
+- **Coleta: rocha "rachada"** (item #3): no primeiro golpe o jogo troca muitos nós por uma cópia no
+  mesmo ponto (`Destructible.m_spawnWhenDamaged`); o nó original sumia e o companheiro lia
+  "destruído" — era o sintoma de *um golpe por pedra*. Agora ele guarda a **posição do último nó** e,
+  na próxima varredura, procura um `MineRock`/`MineRock5`/`Destructible` **no mesmo ponto** (raio
+  2,5 m) e continua a minerar.
+- **Coleta: tora mais próxima** (item #16): ao derrubar uma árvore (`TreeBase`) — ou partir uma tora
+  (`TreeLog`) — o companheiro mira **imediatamente a `TreeLog` mais próxima** (raio 12 m), em vez de
+  sair varrendo a esmo. A cascata `TreeBase → TreeLog → m_subLogPrefab` (é o que faz a árvore render
+  madeira) fica **intacta**.
+- **Coleta: ferramenta por tier** (item #8): o padrão de `Coleta/FerramentasFornecidas` passa a ser
+  **`AxeStone,PickaxeAntler,PickaxeIron`** e, quando o nó exige um tier maior do que a ferramenta
+  disponível (prata/obsidiana com a picareta de chifre), o mod **fornece a melhor ferramenta da lista
+  que atenda** (tier ≥ mínimo do nó e dano > 0 contra as resistências dele) e repete a varredura uma
+  vez — prata/obsidiana passam a ser caváveis de primeira.
+
+### Alterado
+- `CompanionHarvestScanner`: `FindBestNode` passou a reportar o **tier mínimo exigido** e as
+  resistências do nó que a ferramenta disponível não arranha (`HarvestPick.RequiredTier` /
+  `RequiredModifiers`); ganhou as sondagens pontuais `FindNearestDrop`, `FindCrackedNode` e
+  `FindNearestTreeLog`, com buffers reaproveitados (nada alocado por chamada).
+- `CompanionInventory.EnsureHarvestToolForNode`: escolhe a melhor ferramenta da lista configurada
+  para o tier exigido pelo nó (não cria nada se já houver uma capaz e nunca duplica).
+- `CompanionAI`: a camada de coleta ganhou o "último nó conhecido" (posição + tipo) para resolver o
+  nó que sumiu sem depender do frame em que o `GameObject` é destruído, e a limpeza do estado da
+  coleta foi para `ResetHarvestState`.
+- Versão do plugin → **0.3.2**.
+
+### Notas
+- **Referência (MIT, uso livre):** as correções #1/#9 (espera pelos drops + estado dedicado),
+  #3 (seguir a cópia "rachada") e #16 (tora mais próxima) espelham a *lógica* de
+  `HarvestController.UpdateCollectingDrops`/`TryFollowCrackedRock` e
+  `MHR_GatherRules.NearestLog` do [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn)
+  (ver `THIRD_PARTY_NOTICES.md`). A implementação é nossa (adaptada ao nosso modelo de estados e
+  aos nossos buffers), não é cópia de arquivo.
+- **Performance:** a coleta de drops usa uma varredura com buffer pré-alocado no intervalo normal
+  (0,5 s), nunca por frame; as sondagens pontuais compartilham o mesmo buffer.
+- A espera pelos drops é **pulada** quando o combate vence (a coleta pausa e retoma depois) e
+  desligável junto com `Coleta/CatarDrops = false` (aí não há drops para esperar).
+
 ## [0.3.1] — 2026-10-13
 
 ### Adicionado
