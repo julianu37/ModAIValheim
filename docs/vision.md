@@ -30,25 +30,29 @@ Consequência aceita: enquanto o ZDO não existir, o estado do companheiro conti
 
 | Capacidade | Status |
 |---|---|
-| Aparência (corpo viking, cabelo/barba, cor de pele/cabelo) | ✅ básico |
-| Inventário próprio (8×4) | ✅ |
+| Aparência (corpo viking, cabelo/barba, cor de pele/cabelo) | ✅ |
+| Inventário próprio (8×4) + **peso** | ✅ |
 | Equipar itens / loadout padrão | ✅ |
-| Lutar ao seu lado (Passive/Defensive/Aggressive, bloqueio) | ✅ |
+| Lutar ao seu lado (Passive/Defensive/Aggressive, bloqueio/parry) | ✅ |
 | Cortar lenha / minerar / coletar (drops, rocha rachada, ferramenta por tier) | ✅ |
-| Seguir você (com proteção contra queda) | ✅ |
+| Seguir você (proteção contra queda, **abre portas**) | ✅ |
 | Menu PT-BR + hover com ações | ✅ |
-| Cata o que abateu (drops de criatura) | 🔄 (em implementação) |
+| Cata o que abateu (drops de criatura) | ✅ |
+| **Comida / resistência (stamina)** | ✅ |
+| **Habilidades (skills) que evoluem** | ✅ |
+| Peso, **depósito em baú** e *tool keeper* | ✅ |
+| Caçar · pescar | ✅ |
+| Cultivar · cozinhar/preparar bebidas · operar fundições | ✅ |
+| Cuidar da base (reparar, abastecer fogueiras, colmeias, **ordenar baús**) | ✅ |
+| Casa (home) | ✅ |
+| Fogueira (sentar/descansar) · dormir em cama · **seguir por portais** · puxar carroça | ✅ |
 | Combate: escolher arma/escudo por alvo | 🟡 parcial (vanilla `EquipBestWeapon`) |
-| Caçar | 🟡 parcial (`AtacarAnimaisNeutros`) |
-| **Comida / resistência (stamina)** | ❌ |
-| **Habilidades (skills)** | ❌ (hoje silenciadas) |
 | **Fala** | ❌ (é a Fase 3) |
-| Cozinhar / preparar bebidas / operar fundições | ❌ |
-| Cultivar / pescar | ❌ |
-| Cuidar da base (reparar, abastecer, ordenar baús) | ❌ |
-| Casa (home) / puxar carroça / fogueira / dormir em cama / portais | ❌ |
-| Peso e depósito (inventário cheio) | ❌ |
-| **Salvo com o mundo** | 🟡 hoje é JSON em `BepInEx/config`, **não** no save do mundo |
+| **Salvo com o mundo (ZDO)** | ⏳ adiado (SP primeiro) — hoje é JSON em `BepInEx/config` |
+
+> **Marco: v0.4.6** — o companheiro já é um **membro da equipe** em single-player (trabalha, come,
+> cansa, evolui, cuida da base e da casa). Falta a **fala/IA** (Fase 3) e, se/quando quisermos, o
+> **ZDO/multiplayer**.
 
 ---
 
