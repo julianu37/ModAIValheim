@@ -3,6 +3,60 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.3.3] — 2026-10-13
+
+### Adicionado
+- **Proteção contra queda** (Fase 2.10, item #2 da
+  [auditoria](docs/audit-vs-offline-companions.md)): antes de dar um passo — na coleta
+  (`CompanionAI.ApproachAndWork`) e no follow nativo — o companheiro sonda o chão à frente
+  (`Physics.SphereCast` curto, com `ZoneSystem.GetSolidHeight`/`GetGroundHeight` de reserva) e, se
+  ele **cair mais que `Movimento/QuedaMaxima`** (padrão **1,2 m**), **desvia** para um lado seguro
+  ou **aborta** o passo. Água funda abaixo não conta como barranco. Novas configs
+  `Movimento/ProtecaoContraQueda`, `Movimento/QuedaMaxima` e `Movimento/DistanciaSondagem`.
+- **Portas no caminho** (item #5): o companheiro detecta uma porta **fechada e utilizável** à frente
+  (raycast curto por `Door`), abre com `Door.Interact(humanoid, hold: false, alt: false)` e **fecha
+  de novo depois de passar**. Nunca abre portas com `m_keyItem` nem portas em `PrivateArea` sem
+  acesso (mesmo filtro do `DoorHandler.IsValidClosedDoor` da referência). Config
+  `Movimento/AbrirPortas` (padrão `true`).
+- **Bloqueio/parry** (item #6): quando um inimigo hostil a menos de `Combate/RaioBloqueio`
+  (padrão **8 m**) está em `InAttack()`, o companheiro vira para ele e ergue o escudo
+  (`Character.m_blocking` + `Humanoid.m_blockTimer`) por `Combate/TempoBloqueio` (padrão **0,2 s**);
+  depois baixa o escudo para **revidar**. Configs `Combate/BloquearAtaques`, `Combate/RaioBloqueio`
+  e `Combate/TempoBloqueio`.
+- **Filtro de alvo passivo/neutro** (item #14): fora do combate o companheiro ignora `AnimalAI`
+  (cervo, lebre, galinha) e criaturas que só revidam/fogem/vivem na água (`m_passiveAggresive`,
+  `m_fleeIfNotAlerted`, `m_avoidLand`); quem já está alertado/com alvo continua válido (o revide do
+  modo Defensive não muda). Vale só com `Combate/AtacarAnimaisNeutros = false` (o padrão); ligue-o
+  para caçar essa fauna.
+
+### Alterado
+- **Um dono do movimento por frame**: a coleta reivindica o frame quando dirige
+  (`MovementOwner.Harvest`) e as guardas de porta/barranco do follow só agem quando o dono é o motor
+  nativo (`MovementOwner.Native`). Prioridade: **combate vence a coleta** (pausando-a, como antes) e,
+  entre os que andam, **coleta > follow nativo**. Novo tipo `CompanionMovement` (portas + barranco)
+  e o enum `MovementOwner`.
+- `CompanionAI`: `ApproachAndWork` passa por `CompanionMovement.PrepareStep` antes de `MoveTo`;
+  `UpdateBlocking`/`UpdateFollowSafety` entram no tick, logo após o motor nativo; `IsHostileTarget`
+  ganhou o filtro de passivos (`IsPassiveCreature`).
+- `CompanionCombat.Configure` passou a receber as três configs de bloqueio.
+- Versão do plugin → **0.3.3**.
+
+### Notas
+- **Referência (MIT, uso livre):** as correções #2 (queda), #5 (portas) e #6 (bloqueio) espelham a
+  *lógica* de `MHR_Mover.LedgeAhead`/`DropAhead`/`DoorAhead`/`OpenDoor`/`CloseDoor`,
+  `DoorHandler.IsValidClosedDoor` e `CompanionCombatAI.UpdateBlocking` do
+  [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn)
+  (ver `THIRD_PARTY_NOTICES.md`). A implementação é nossa (adaptada ao modelo de dono-do-movimento e
+  aos buffers reaproveitados), não é cópia de arquivo.
+- **API:** o `Character.SetBlocking(bool)` citado na auditoria **não existe mais** na 1.0.17 — só o
+  campo privado `Character.m_blocking` e o `Humanoid.m_blockTimer`, que escrevemos direto por
+  compilarmos contra a `assembly_valheim` publicized.
+- **Performance:** as sondagens (barranco/porta/bloqueio) rodam no tick da IA (~20 Hz), com
+  `Physics.*NonAlloc`/`SphereCast` e buffers estáticos; nada é alocado por frame. As portas abertas
+  ficam numa lista curta e são fechadas com um teste de distância, não por varredura contínua.
+- **Configs novas** (nenhum default existente mudou): se o seu `modia.companion.cfg` não tiver a
+  seção `[Movimento]`, o jogo a cria com os defaults ao carregar.
+
 ## [0.3.2] — 2026-10-13
 
 ### Corrigido

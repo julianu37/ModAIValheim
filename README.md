@@ -5,7 +5,8 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
 > equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, minérios e
-> colhíveis — ver a [tabela de materiais](#materiais-suportados-fase-28)), mostra **nome + teclas no
+> colhíveis — ver a [tabela de materiais](#materiais-suportados-fase-28)), **abre portas e evita
+> barrancos no caminho**, mostra **nome + teclas no
 > hover**, tem um **menu no jogo** (status, aparência, combate, coleta e teclas) e **volta o mesmo**
 > depois de dispensado (itens, equipamento, aparência e modo). Ainda faltam **multiplayer**,
 > **voz/IA** e **backend**.
@@ -228,13 +229,48 @@ produção do jogador):
 > **criatura/baú** no seu mundo, a varredura simplesmente não encontra nó e o log diz isso
 > (`nenhum nó de coleta no raio`); não há falso positivo. Confirme com `Geral/LogDetalhado = true`.
 
+### Movimento e combate (Fase 2.10 · correções da auditoria)
+
+Correções dos itens #2, #5, #6 e #14 da
+[auditoria comparativa](docs/audit-vs-offline-companions.md) (vs Offline Companions Reborn, MIT):
+
+- **Não cai de barranco (#2).** Antes de cada passo — na **coleta** e no **follow** — o companheiro
+  sonda o chão logo à frente (um *spherecast* curto com a altura do `ZoneSystem` como reserva). Se o
+  chão **cair mais que `Movimento/QuedaMaxima`** (padrão **1,2 m**) ele tenta **desviar** para um
+  lado seguro; sem desvio, **para** em vez de se jogar. Cair na **água funda** não conta como
+  barranco. Se ele estiver parando em rampas legítimas, aumente `QuedaMaxima` ou reduza
+  `DistanciaSondagem`.
+- **Abre portas no caminho (#5).** Uma porta **fechada e utilizável** logo à frente (raycast curto por
+  `Door`) é aberta (`Door.Interact`) e o companheiro passa; depois de passar, **fecha de novo**
+  (`Movimento/AbrirPortas`, padrão `true`). Nunca abre portas com **item de chave** (`m_keyItem`) nem
+  portas em **área privada sem acesso** (`PrivateArea.CheckAccess`) — e não fecha se o jogador (ou
+  alguém) ainda estiver na soleira.
+- **Bloqueia/aparar golpes (#6).** Quando um inimigo hostil a menos de `Combate/RaioBloqueio`
+  (padrão **8 m**) está atacando, o companheiro vira para ele e **ergue o escudo**
+  (`Character.m_blocking` + `Humanoid.m_blockTimer`) por `Combate/TempoBloqueio` (padrão **0,2 s**);
+  depois baixa o escudo para **revidar**. Desligue com `Combate/BloquearAtaques = false`. Só tem
+  efeito prático se ele estiver com um **escudo equipado** (`modia_equip ShieldWood`, por exemplo).
+- **Não caça bicho passivo (#14).** Fora do combate, o companheiro **ignora a fauna passiva/neutra**:
+  `AnimalAI` (cervo, lebre, galinha) e criaturas que só revidam (`m_passiveAggresive`), fogem
+  (`m_fleeIfNotAlerted`) ou vivem na água (`m_avoidLand`). Quem já está **atacando/alertado** continua
+  sendo alvo válido (o revide do modo Defensive não muda). Para caçar essa fauna mesmo assim, ligue
+  `Combate/AtacarAnimaisNeutros = true`.
+
+> **Um dono do movimento por frame.** Para porta, barranco, coleta e follow não disputarem o mesmo
+> `MoveTo`, o mod define **um dono por tick**: a **coleta** (quando ativa e dirigindo) tem prioridade
+> sobre o **follow/combate nativo** do motor do jogo; o **combate** vence a coleta **pausando-a**
+> antes (o alvo hostil continua com a prioridade de sempre). As guardas de porta/barranco só agem
+> quando o dono do frame é o follow nativo — nunca brigam com a coleta.
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
 - **Teclas** — `SpawnKey` (F1), `DismissKey` (H), `CombatModeKey` (F3), `HarvestKey` (F4), `MenuKey` (Y)
 - **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`, `PersistirEntreSessoes`
 - **Aparencia** — `AparenciaPadrao`, `CabeloPrefab`, `BarbaPrefab`, `CorPele`, `CorCabelo`
-- **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`
+- **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`,
+  `BloquearAtaques`, `RaioBloqueio`, `TempoBloqueio`
+- **Movimento** — `ProtecaoContraQueda`, `QuedaMaxima`, `DistanciaSondagem`, `AbrirPortas`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
   `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`
 - **Interface** — `MostrarDicasNoHover`
@@ -323,6 +359,22 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
    a ser o veio — `modia_inv` mostra a picareta de ferro. Repita com `modia_gather obsidiana 10`.
 5. **Combate x coleta** continua valendo: em **Defensive/Aggressive** um inimigo pausa a coleta (a
    espera pelos drops é retomada depois); em **Passive** ele ignora os inimigos.
+
+### Teste rápido do movimento e combate (Fase 2.10)
+
+1. **Barranco (#2)**: suba a um penhasco/margem alta com o companheiro seguindo. Ele **não deve
+   pular** atrás de você: para na beira ou contorna. Com `Geral/LogDetalhado`/observação, ligue
+   `Movimento/ProtecaoContraQueda = false` e repita para comparar. Se ele parar em **rampas
+   suaves**, aumente `Movimento/QuedaMaxima` (ex.: 2,0).
+2. **Portas (#5)**: construa/entre numa casa com porta (ou use uma cabana do mundo) e ande para
+   dentro com o companheiro seguindo — ele **abre a porta** e, depois de passar, **fecha**. Portas
+   trancadas (com chave) e de bases alheias **não** devem abrir.
+3. **Bloqueio (#6)**: equipe um escudo no companheiro (`modia_equip ShieldWood`), provoque um
+   inimigo (Greydwarf/Skeleton) e observe: quando ele ataca, o companheiro **ergue o escudo** por um
+   instante e **revida** logo depois. Desligue `Combate/BloquearAtaques` para comparar.
+4. **Alvo passivo (#14)**: em modo **Aggressive** (`F3`), ande por uma campina com **cervos/javalis**:
+   com `Combate/AtacarAnimaisNeutros = false` (padrão) ele **ignora** os passivos e só ataca hostis
+   (Greydwarf, esqueleto…). Ligue `AtacarAnimaisNeutros = true` para ele caçar a fauna.
 
 ---
 

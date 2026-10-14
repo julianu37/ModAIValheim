@@ -28,6 +28,8 @@ namespace ModAIValheim
     /// Fase 2.9: correções de coleta — espera os drops nascerem antes de encerrar a tarefa (estado
     /// dedicado de coleta de drops), segue a cópia "rachada" de uma rocha no mesmo ponto, mira a
     /// tora da árvore que acabou de cair e fornece a ferramenta pelo tier exigido pelo nó.
+    /// Fase 2.10: correções de movimento/combate da auditoria — proteção contra queda (#2), portas
+    /// no caminho (#5), bloqueio/parry (#6) e filtro de alvo passivo/neutro (#14).
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -35,7 +37,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.3.2";
+        public const string PluginVersion = "0.3.3";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -65,6 +67,15 @@ namespace ModAIValheim
         private ConfigEntry<float> _combatLeashDistance;
         private ConfigEntry<bool> _attackNeutralAnimals;
         private ConfigEntry<float> _combatScanInterval;
+        private ConfigEntry<bool> _blockAttacks;
+        private ConfigEntry<float> _blockRadius;
+        private ConfigEntry<float> _blockHold;
+
+        // Movimento do companheiro (Fase 2.10): protecao contra queda e portas.
+        private ConfigEntry<bool> _ledgeProtection;
+        private ConfigEntry<float> _maxDrop;
+        private ConfigEntry<float> _ledgeProbeDistance;
+        private ConfigEntry<bool> _openDoors;
 
         // Persistencia do companheiro entre sessoes (Fase 2.7).
         private ConfigEntry<bool> _persistBetweenSessions;
@@ -233,6 +244,58 @@ namespace ModAIValheim
                 "Intervalo em segundos entre as varreduras de alvo (0.1 a 2.0). " +
                 "A varredura nunca roda por frame.");
 
+            _blockAttacks = Config.Bind(
+                "Combate",
+                "BloquearAtaques",
+                true,
+                "Se true (padrao), o companheiro ergue o escudo quando um inimigo proximo esta " +
+                "atacando (bloqueio/parry) e o baixa para revidar. So tem efeito pratico se ele " +
+                "estiver com um escudo equipado.");
+
+            _blockRadius = Config.Bind(
+                "Combate",
+                "RaioBloqueio",
+                8f,
+                "Raio em metros em que um inimigo atacando faz o companheiro bloquear (2 a 20).");
+
+            _blockHold = Config.Bind(
+                "Combate",
+                "TempoBloqueio",
+                0.2f,
+                "Tempo em segundos que o companheiro mantem o escudo erguido depois de um golpe " +
+                "inimigo (0.05 a 1.0).");
+
+            // Movimento do companheiro (Fase 2.10, itens #2 e #5 da auditoria).
+            _ledgeProtection = Config.Bind(
+                "Movimento",
+                "ProtecaoContraQueda",
+                true,
+                "Se true (padrao), o companheiro nao anda para barranco/penhasco: antes de cada " +
+                "passo (coleta e follow) ele sonda o chao a frente e desvia ou para se o chao cair " +
+                "demais. Desligue se ele estiver parando em rampas legitimas.");
+
+            _maxDrop = Config.Bind(
+                "Movimento",
+                "QuedaMaxima",
+                1.2f,
+                "Queda maxima em metros tolerada num passo antes de o companheiro considerar que ha " +
+                "um barranco (0.4 a 5.0). Valores maiores = menos conservador. Nao conta agua funda " +
+                "(cair na agua e seguro).");
+
+            _ledgeProbeDistance = Config.Bind(
+                "Movimento",
+                "DistanciaSondagem",
+                1.2f,
+                "Distancia em metros a frente onde o chao e sondado para detectar barranco " +
+                "(0.5 a 3.0). Curta demais detecta tarde; longa demais para em rampas suaves.");
+
+            _openDoors = Config.Bind(
+                "Movimento",
+                "AbrirPortas",
+                true,
+                "Se true (padrao), o companheiro abre portas fechadas no caminho e as fecha depois " +
+                "de passar. Nunca abre portas com item de chave nem em area privada sem acesso.");
+
             // Coleta de recursos (Fase 2.4b).
             _harvestKey = Config.Bind(
                 "Teclas",
@@ -353,7 +416,7 @@ namespace ModAIValheim
                 $"[ModIA] Persistencia do companheiro: entre sessoes = " +
                 $"{_persistBetweenSessions.Value} (snapshot em memoria sempre ativo).");
 
-            // Combate: modo, tecla de ciclo e raios (Fase 2.4a).
+            // Combate: modo, tecla de ciclo e raios (Fase 2.4a) + bloqueio/parry (Fase 2.10, #6).
             CompanionCombat.Configure(
                 _combatMode,
                 _combatModeKey,
@@ -361,7 +424,17 @@ namespace ModAIValheim
                 _defensiveRadius,
                 _combatLeashDistance,
                 _attackNeutralAnimals,
-                _combatScanInterval);
+                _combatScanInterval,
+                _blockAttacks,
+                _blockRadius,
+                _blockHold);
+
+            // Movimento: protecao contra queda (#2) e portas (#5) (Fase 2.10).
+            CompanionMovement.Configure(
+                _ledgeProtection,
+                _maxDrop,
+                _ledgeProbeDistance,
+                _openDoors);
 
             // Prefab do companheiro: clonado dos prefabs vanilla assim que eles estiverem
             // disponíveis (o Jotunn dispara o evento a cada carga de ObjectDB).

@@ -127,6 +127,7 @@ namespace ModAIValheim.Companion
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
             CompanionHarvest.Shutdown();
+            CompanionMovement.Shutdown();
         }
 
         private static void Spawn()

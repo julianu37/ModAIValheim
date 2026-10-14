@@ -26,6 +26,13 @@ namespace ModAIValheim.Companion
         /// <summary>Quanto tempo (s) a memória de agressão sobrevive sem um novo estímulo.</summary>
         private const float AttackerMemorySeconds = 15f;
 
+        /// <summary>
+        /// Tempo (s) mínimo com um inimigo em <c>InAttack()</c> antes de erguer o escudo. É o
+        /// <c>_enemySwingTimer &gt;= 0.2f</c> da referência (item #6): dá tempo de o golpe "carregar"
+        /// antes de bloquear, em vez de bloquear a cada tique.
+        /// </summary>
+        internal const float BlockDelay = 0.2f;
+
         private static ConfigEntry<CompanionMode> _mode;
         private static ConfigEntry<KeyCode> _modeKey;
         private static ConfigEntry<float> _aggressiveRadius;
@@ -33,6 +40,9 @@ namespace ModAIValheim.Companion
         private static ConfigEntry<float> _leashDistance;
         private static ConfigEntry<bool> _attackNeutralAnimals;
         private static ConfigEntry<float> _scanInterval;
+        private static ConfigEntry<bool> _blockAttacks;
+        private static ConfigEntry<float> _blockRadius;
+        private static ConfigEntry<float> _blockHold;
 
         /// <summary>Quem agrediu (companheiro/jogador) ou quem o jogador atacou, e quando.</summary>
         private static Character _recentAttacker;
@@ -54,6 +64,18 @@ namespace ModAIValheim.Companion
         /// <summary>Se true, o companheiro também caça a fauna neutra (fação <c>AnimalsVeg</c>).</summary>
         internal static bool AttackNeutralAnimals => _attackNeutralAnimals != null && _attackNeutralAnimals.Value;
 
+        /// <summary>
+        /// Se true (padrão), o companheiro ergue o escudo quando um inimigo próximo ataca (#6). Só
+        /// tem efeito prático se ele estiver com um escudo equipado.
+        /// </summary>
+        internal static bool BlockAttacks => _blockAttacks == null || _blockAttacks.Value;
+
+        /// <summary>Raio (m) em que procuramos um inimigo atacando para bloquear (#6).</summary>
+        internal static float BlockRadius => _blockRadius != null ? Mathf.Clamp(_blockRadius.Value, 2f, 20f) : 8f;
+
+        /// <summary>Tempo (s) que o bloqueio é mantido depois de um golpe inimigo (#6).</summary>
+        internal static float BlockHold => _blockHold != null ? Mathf.Clamp(_blockHold.Value, 0.05f, 1f) : 0.2f;
+
         /// <summary>Intervalo (s) entre varreduras de alvo — nunca por frame.</summary>
         internal static float ScanInterval
         {
@@ -71,7 +93,10 @@ namespace ModAIValheim.Companion
             ConfigEntry<float> defensiveRadius,
             ConfigEntry<float> leashDistance,
             ConfigEntry<bool> attackNeutralAnimals,
-            ConfigEntry<float> scanInterval)
+            ConfigEntry<float> scanInterval,
+            ConfigEntry<bool> blockAttacks,
+            ConfigEntry<float> blockRadius,
+            ConfigEntry<float> blockHold)
         {
             _mode = mode;
             _modeKey = modeKey;
@@ -80,12 +105,16 @@ namespace ModAIValheim.Companion
             _leashDistance = leashDistance;
             _attackNeutralAnimals = attackNeutralAnimals;
             _scanInterval = scanInterval;
+            _blockAttacks = blockAttacks;
+            _blockRadius = blockRadius;
+            _blockHold = blockHold;
 
             Plugin.Log.LogInfo(
                 $"[ModIA] Combate: modo = {Mode} | tecla = {ModeKey} | " +
                 $"raio agressivo = {AggressiveRadius} m | raio defensivo = {DefensiveRadius} m | " +
                 $"coleira = {LeashDistance} m | animais neutros = {AttackNeutralAnimals} | " +
-                $"varredura = {ScanInterval} s.");
+                $"varredura = {ScanInterval} s | bloquear = {BlockAttacks} " +
+                $"(raio {BlockRadius} m, tempo {BlockHold} s).");
         }
 
         /// <summary>Solta o estado estático (unload do plugin / fim do mundo).</summary>

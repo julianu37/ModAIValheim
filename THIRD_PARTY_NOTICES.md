@@ -44,3 +44,8 @@ SOFTWARE.
 >   `TryFollowCrackedRock`) e de `src/Companions/Jobs/MHR_GatherRules.cs` (`NearestLog`,
 >   `DropCenter`). A implementação no ModIA é própria (adaptada ao modelo de estados do
 >   `CompanionAI` e aos buffers reaproveitados do `CompanionHarvestScanner`), sem cópia de arquivo.
+> - **Fase 2.10 (v0.3.3)** — as correções de movimento/combate seguem a lógica de
+>   `src/Companions/AI/MHR_Mover.cs` (`LedgeAhead`, `DropAhead`, `DoorAhead`, `OpenDoor`,
+>   `CloseDoor`), `src/Companions/AI/DoorHandler.cs` (`IsValidClosedDoor`) e
+>   `src/Companions/AI/CompanionCombatAI.cs` (`UpdateBlocking`). A implementação no ModIA é própria
+>   (`CompanionMovement` + o dono do movimento por frame do `CompanionAI`), sem cópia de arquivo.

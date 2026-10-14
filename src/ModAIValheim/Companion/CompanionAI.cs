@@ -61,6 +61,12 @@ namespace ModAIValheim.Companion
         /// <summary>Ângulo máximo (graus) de desvio tolerado antes de golpear um recurso.</summary>
         private const float MaxStrikeAngle = 60f;
 
+        /// <summary>
+        /// Comprimento (m) do "ponto à frente" usado para reconstruir a direção do passo do follow
+        /// nativo na guarda de porta/barranco (a direção vem de <c>Character.m_moveDir</c>).
+        /// </summary>
+        private const float FollowProbeAhead = 3f;
+
         /// <summary>Alcance (m) usado quando a ferramenta não informa um (default do jogo).</summary>
         private const float DefaultHarvestReach = 1.5f;
 
@@ -112,6 +118,19 @@ namespace ModAIValheim.Companion
 
         /// <summary>Intervalo (s) entre interações (colher/pegar item).</summary>
         private const float HarvestInteractInterval = 0.3f;
+
+        // --- Fase 2.10: dono do movimento por frame (#2/#5) e bloqueio/parry (#6) ---
+        /// <summary>Quem dirige o movimento neste frame (evita <c>MoveTo</c> concorrendo).</summary>
+        private MovementOwner _movementOwner;
+
+        /// <summary>Tempo (s) que o companheiro segura o bloqueio depois de um golpe inimigo.</summary>
+        private float _blockHoldTimer;
+
+        /// <summary>Tempo (s) acumulado com um inimigo em <c>InAttack()</c> antes de erguer o escudo.</summary>
+        private float _enemySwingTimer;
+
+        /// <summary>Nosso espelho de <c>Character.m_blocking</c> (para não escrever o campo à toa).</summary>
+        private bool _blocking;
 
         // --- Fase 2.9: coleta de drops, rocha "rachada" e tora -----------------
 
@@ -208,6 +227,12 @@ namespace ModAIValheim.Companion
 
             ApplyCombatTuning();
 
+            // Fase 2.10 (#6): baixa o escudo ANTES do motor nativo para que a lógica de ataque do
+            // MonsterAI (que roda em base.UpdateAI) não fique presa no bloqueio; a camada
+            // UpdateBlocking volta a erguê-lo logo depois, valendo pelo resto do frame (é quando o
+            // dano do inimigo chega e o BlockAttack do jogo consulta m_blocking).
+            LowerShieldForAttack();
+
             // Trava a re-aquisição automática do MonsterAI: quem escolhe o alvo é o nosso modo.
             m_updateTargetTimer = TargetUpdateFreeze;
 
@@ -221,10 +246,25 @@ namespace ModAIValheim.Companion
             // Perseguição, ataque (animação/hit detection/dano), regen e follow nativos do jogo.
             bool result = base.UpdateAI(dt);
 
+            // Fase 2.10: o motor nativo é o dono do movimento por padrão (follow/perseguição).
+            // Cada camada abaixo reivindica o frame quando de fato dirige o companheiro — assim
+            // bloqueio, coleta e guardas de porta/barranco nunca chamam MoveTo ao mesmo tempo.
+            _movementOwner = MovementOwner.Native;
+
+            // Fase 2.10 (#6): bloqueio/parry — só ergue o escudo e mira; não dirige movimento.
+            UpdateBlocking(dt);
+
             // Fase 2.4b: a coleta roda DEPOIS do motor nativo. Quando ela está ativa é ela quem
             // manda no movimento/mira/ataque (a última escrita em SetMoveDir/SetLookDir vence) e
             // quem decide o que o MonsterAI segue.
             UpdateHarvest(dt);
+
+            // Fase 2.10 (#2/#5): guarda o passo do follow nativo (porta/barranco) — só quando a
+            // coleta não reivindicou o frame.
+            UpdateFollowSafety(dt);
+
+            // Fase 2.10 (#5): fecha as portas que abrimos, depois de passar por elas.
+            CompanionMovement.TickOpenedDoors(m_character);
 
             return result;
         }
@@ -246,6 +286,7 @@ namespace ModAIValheim.Companion
         internal void ApplyMode(CompanionMode mode)
         {
             _scanTimer = 0f;
+            ClearBlock();
 
             if (mode == CompanionMode.Passive)
             {
@@ -264,6 +305,7 @@ namespace ModAIValheim.Companion
         internal void ClearCombatTarget()
         {
             ClearTarget("comando do jogador");
+            ClearBlock();
             _scanTimer = 0f;
         }
 
@@ -540,6 +582,15 @@ namespace ModAIValheim.Companion
                 return false;
             }
 
+            // Fase 2.10 (#14): fora do combate, ignora a fauna passiva/neutra (AnimalAI, ou
+            // criaturas que só revidam / fogem / vivem na água). Só vale quando o jogador NÃO
+            // pediu para atacar neutros; quem já está engajado (alertado/com alvo) continua válido,
+            // preservando o revide do modo Defensive.
+            if (!CompanionCombat.AttackNeutralAnimals && IsPassiveCreature(target))
+            {
+                return false;
+            }
+
             if (!IsHostileFaction(target.GetFaction()))
             {
                 return false;
@@ -547,6 +598,35 @@ namespace ModAIValheim.Companion
 
             // IsEnemy (do BaseAI) cuida de grupo/mesma facção/domado com as regras do jogo.
             return IsEnemy(target);
+        }
+
+        /// <summary>
+        /// Criatura passiva/neutra <b>fora de combate</b> (item #14): <c>AnimalAI</c> (cervo, lebre,
+        /// galinha), ou <c>MonsterAI</c>/<c>BaseAI</c> que só revida (<c>m_passiveAggresive</c>),
+        /// evita terra (<c>m_avoidLand</c>) ou foge enquanto não é alertada
+        /// (<c>m_fleeIfNotAlerted</c>). Quem já tem alvo ou está alertado não conta como passivo —
+        /// aí é uma luta de verdade.
+        /// </summary>
+        private static bool IsPassiveCreature(Character target)
+        {
+            BaseAI ai = target.GetBaseAI();
+            if (ai == null)
+            {
+                return false;
+            }
+
+            if (ai.GetTargetCreature() != null || ai.IsAlerted())
+            {
+                return false;
+            }
+
+            if (ai is AnimalAI || ai.m_passiveAggresive)
+            {
+                return true;
+            }
+
+            MonsterAI monster = ai as MonsterAI;
+            return monster != null && (monster.m_avoidLand || monster.m_fleeIfNotAlerted);
         }
 
         /// <summary>
@@ -1019,13 +1099,222 @@ namespace ModAIValheim.Companion
             return item != null && !item.InTar();
         }
 
+        // ---------------------------------------------------------------------
+        // Fase 2.10 (#6): bloqueio/parry
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Bloqueio do companheiro (item #6). Quando um inimigo próximo (&lt; <c>Combate/RaioBloqueio</c>)
+        /// está em <c>InAttack()</c>, o companheiro vira para ele e ergue o escudo
+        /// (<c>Character.m_blocking</c>, o mesmo campo que <c>Character.SetBlocking</c> usaria) por
+        /// <c>Combate/TempoBloqueio</c> s; fora disso o bloqueio é desfeito para ele revidar.
+        ///
+        /// <para>
+        /// Como não existe mais <c>Character.SetBlocking</c> na 1.0.17 (só o campo privado
+        /// <c>m_blocking</c> e o <c>Humanoid.m_blockTimer</c>), escrevemos os dois direto — possível
+        /// porque compilamos contra a <c>assembly_valheim</c> publicized. Não dirigimos movimento
+        /// aqui (só <c>LookAt</c>), então não disputamos o "dono do movimento".
+        /// </para>
+        /// </summary>
+        private void UpdateBlocking(float dt)
+        {
+            if (!CompanionCombat.BlockAttacks || m_character == null)
+            {
+                ClearBlock();
+                return;
+            }
+
+            if (CompanionCombat.Mode == CompanionMode.Passive ||
+                GetTargetCreature() == null ||
+                m_character.InAttack() ||
+                m_character.IsStaggering())
+            {
+                ClearBlock();
+                return;
+            }
+
+            float radius = CompanionCombat.BlockRadius;
+            Character threat = FindSwingingEnemy(radius);
+            if (threat != null)
+            {
+                _enemySwingTimer += dt;
+                if (_enemySwingTimer >= CompanionCombat.BlockDelay)
+                {
+                    LookAt(threat.GetTopPoint());
+                    SetBlocking(true);
+                    _blockHoldTimer = CompanionCombat.BlockHold;
+                }
+
+                return;
+            }
+
+            if (_blockHoldTimer > 0f)
+            {
+                // Ainda segurando o escudo um instante depois do golpe (parry).
+                _blockHoldTimer -= dt;
+                _enemySwingTimer = 0f;
+                SetBlocking(true);
+                return;
+            }
+
+            ClearBlock();
+        }
+
+        /// <summary>Inimigo hostil dentro do raio que está desferindo um ataque agora.</summary>
+        private Character FindSwingingEnemy(float radius)
+        {
+            FillScanBuffer(radius);
+            for (int i = 0; i < _scanBuffer.Count; i++)
+            {
+                Character candidate = _scanBuffer[i];
+                if (candidate == null || candidate == m_character || candidate.IsDead() ||
+                    !candidate.InAttack())
+                {
+                    continue;
+                }
+
+                if (Vector3.Distance(candidate.transform.position, transform.position) > radius)
+                {
+                    continue;
+                }
+
+                if (!IsHostileTarget(candidate))
+                {
+                    continue;
+                }
+
+                return candidate;
+            }
+
+            return null;
+        }
+
+        /// <summary>Escreve o estado de bloqueio (campo do <c>Character</c> + timer do <c>Humanoid</c>).</summary>
+        private void SetBlocking(bool value)
+        {
+            if (m_character == null || _blocking == value)
+            {
+                return;
+            }
+
+            _blocking = value;
+            m_character.m_blocking = value;
+
+            if (value)
+            {
+                Humanoid humanoid = m_character as Humanoid;
+                if (humanoid != null)
+                {
+                    humanoid.m_blockTimer = 0f;
+                }
+            }
+        }
+
+        /// <summary>Desfaz o bloqueio e zera os timers da camada de defesa.</summary>
+        private void ClearBlock()
+        {
+            _enemySwingTimer = 0f;
+            _blockHoldTimer = 0f;
+            SetBlocking(false);
+        }
+
+        /// <summary>
+        /// Baixa o escudo sem tocar nos timers: usado só no começo do tick, antes do
+        /// <c>base.UpdateAI</c>, para o motor nativo poder atacar (a camada de bloqueio volta a
+        /// levantá-lo no fim do mesmo tick).
+        /// </summary>
+        private void LowerShieldForAttack()
+        {
+            if (_blocking)
+            {
+                SetBlocking(false);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // Fase 2.10 (#2/#5): guarda do passo do follow nativo
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Guarda o passo do <b>follow/perseguição nativos</b>: só roda quando a coleta não
+        /// reivindicou o frame (<see cref="MovementOwner.Native"/>). Diante de uma porta fechada à
+        /// frente abre e para (#5); diante de um barranco desvia para o lado seguro ou para (#2).
+        ///
+        /// <para>
+        /// Usa a <b>direção de passo real</b> que o motor nativo escolheu (<c>Character.m_moveDir</c>,
+        /// escrita pelo <c>MoveTo</c>/<c>Follow</c> do jogo) — e não a reta até o alvo — para não
+        /// confundir "seguir por uma trilha que contorna o precipício" com "andar para o precipício".
+        /// Parado (<c>m_moveDir</c> zerado) não há passo para guardar.
+        /// </para>
+        /// </summary>
+        private void UpdateFollowSafety(float dt)
+        {
+            if (_movementOwner != MovementOwner.Native)
+            {
+                return;
+            }
+
+            if (!CompanionMovement.LedgeProtection && !CompanionMovement.OpenDoors)
+            {
+                return;
+            }
+
+            if (m_character == null || m_character.IsDead() ||
+                !m_character.IsOnGround() || m_character.IsSwimming())
+            {
+                return;
+            }
+
+            Vector3 stepDir = m_character.m_moveDir;
+            stepDir.y = 0f;
+            if (stepDir.sqrMagnitude < 0.0001f)
+            {
+                return; // parado: não há passo em andamento para guardar
+            }
+
+            stepDir.Normalize();
+
+            Vector3 probeTarget = transform.position + stepDir * FollowProbeAhead;
+            CompanionMovement.StepAction action =
+                CompanionMovement.PrepareStep(m_character, probeTarget, out Vector3 adjusted);
+
+            if (action != CompanionMovement.StepAction.Move)
+            {
+                StopMoving();
+                return;
+            }
+
+            if (adjusted != probeTarget)
+            {
+                // Barranco contornado: segue pelo lado seguro neste frame, mantendo o trote nativo.
+                Vector3 side = adjusted - transform.position;
+                side.y = 0f;
+                if (side.sqrMagnitude > 0.0001f)
+                {
+                    MoveTowards(side.normalized, m_character.m_run);
+                }
+                else
+                {
+                    StopMoving();
+                }
+            }
+        }
+
         /// <summary>
         /// Aproxima (ou para) e mira no ponto. <paramref name="point"/> é o alvo da mira e do
         /// deslocamento; <paramref name="stopAt"/> é a distância em que paramos (alcance da
         /// ferramenta para golpe, distância de interação para itens/colhíveis).
+        ///
+        /// <para>
+        /// Reivindica o movimento do frame (<see cref="MovementOwner.Harvest"/>): enquanto a coleta
+        /// está no comando, a guarda de follow (<see cref="UpdateFollowSafety"/>) não mexe no passo.
+        /// Antes de andar, <see cref="CompanionMovement.PrepareStep"/> abre uma porta fechada à frente
+        /// (#5) ou desvia/aborta o passo diante de um barranco (#2).
+        /// </para>
         /// </summary>
         private void ApproachAndWork(float dt, Vector3 point, float stopAt)
         {
+            _movementOwner = MovementOwner.Harvest;
             LookAt(point);
 
             float distance = Vector3.Distance(point, transform.position);
@@ -1035,9 +1324,19 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            // Aproxima-se até um pouco antes do ponto de parada; corre se estiver longe.
             float stop = Mathf.Max(0.5f, stopAt - 0.8f);
-            MoveTo(dt, point, stop, distance > 12f);
+            CompanionMovement.StepAction action =
+                CompanionMovement.PrepareStep(m_character, point, out Vector3 adjusted);
+            if (action != CompanionMovement.StepAction.Move)
+            {
+                // Porta abrindo ou sem caminho seguro: para neste frame. Se o barranco persistir, o
+                // nó acaba vetado pela detecção de travamento (CompanionHarvest.ShouldGiveUpNode).
+                StopMoving();
+                return;
+            }
+
+            // Aproxima-se até um pouco antes do ponto de parada; corre se estiver longe.
+            MoveTo(dt, adjusted, stop, distance > 12f);
         }
 
         /// <summary>

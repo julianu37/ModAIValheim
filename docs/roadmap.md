@@ -37,6 +37,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.7 | Persistência do companheiro: ao re-invocar (F1) volta o mesmo NPC (itens, equipamento, aparência e modo), com snapshot em memória + JSON opcional | ✅ |
 | 2.8 | Coleta ampliada: lista curada de materiais (pedra/minérios/colhíveis) + dropdown no menu + mira na rocha + ferramenta fornecida | ✅ |
 | 2.9 | Coleta: correções da auditoria (espera pelos drops, rocha "rachada", tora mais próxima, ferramenta por tier) | ✅ |
+| 2.10 | Movimento/combate: proteção contra queda, portas no caminho, bloqueio/parry e filtro de alvo passivo | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -88,3 +89,11 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   **tora mais próxima** (árvore derrubada → `TreeLog` imediata, preservando a cascata) e
   **ferramenta por tier** (`PickaxeIron` no padrão + melhor ferramenta da lista que atenda ao nó,
   o que destrava prata/obsidiana). Ver `docs/audit-vs-offline-companions.md`.
+- **Fase 2.10 (0.3.3)** — **correções de movimento e combate da auditoria comparativa**: **proteção
+  contra queda** (#2, sonda o chão à frente e desvia/aborta se cair mais que 1,2 m — configurável),
+  **portas no caminho** (#5, abre/fecha `Door` sem abrir portas com chave nem em área privada),
+  **bloqueio/parry** (#6, `Character.m_blocking` + `Humanoid.m_blockTimer` quando um inimigo próximo
+  ataca) e **filtro de alvo passivo/neutro** (#14, ignora `AnimalAI` e criaturas que só revidam/fogem
+  salvo `AtacarAnimaisNeutros = true`). Introduz o **dono do movimento por frame**
+  (`CompanionMovement`/`MovementOwner`) para coleta, follow e guardas não disputarem o `MoveTo`.
+  Ver `docs/audit-vs-offline-companions.md`.
