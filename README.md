@@ -308,6 +308,9 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
   - [`api-diff.md`](docs/re/api-diff.md) — o que quebrou no Valheim 1.0.
   - [`backend-contract.md`](docs/re/backend-contract.md) — endpoints do "cérebro" (LLM/STT/TTS).
   - [`harvesting-notes.md`](docs/re/harvesting-notes.md) — de onde vem a madeira de uma árvore e a fórmula de coleta.
+- [`docs/references.md`](docs/references.md) — **fontes de terceiros e licenças** (inclui o mod **MIT**
+  [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn), usado como referência).
+- [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) — avisos de licença de terceiros.
 - [`AGENTS.md`](AGENTS.md) — como a equipe de agentes trabalha neste repositório.
 
 ---

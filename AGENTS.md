@@ -60,6 +60,15 @@ dependências. Leia este arquivo antes de agir.
 - `docs/re/api-diff.md` — **o que quebrou no Valheim 1.0**; leia a seção A antes de portar código.
 - `docs/re/backend-contract.md` — endpoints do "cérebro" (LLM/STT/TTS) e o que reimplementar.
 
+## Fontes de referência (terceiros)
+
+- `docs/references.md` — fontes externas, **licenças** e regras de uso. **Leia antes de reaproveitar código.**
+- **`offline-companions`** (reference do OpenCode) — mod companheiro **MIT** para Valheim 1.0:
+  consulte para **IA de movimento/combate, jobs (coleta/farm/pesca/caça/cozinha/fundição/reparo),
+  UI (menu radial, painéis, HUD) e patches**. Uso **livre** — mas se copiar porções substanciais,
+  mantenha o aviso MIT (`THIRD_PARTY_NOTICES.md`).
+- **Thrall** (ego.ai) — "All rights reserved": **apenas referência conceitual**, nunca copiar código.
+
 ## Skills (carregue antes de escrever/revisar código)
 
 - `bepinex` — plugin, ciclo de vida, config, logging, Harmony, build/deploy.
