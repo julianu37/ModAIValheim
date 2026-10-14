@@ -7,6 +7,12 @@ namespace ModAIValheim.Companion
     /// Ciclo de vida do companheiro no mundo: spawn e dismiss por tecla (via <c>ZInput</c>),
     /// com uma única instância por vez.
     ///
+    /// <para>
+    /// <b>Fase 2.7 (persistência):</b> o dismiss (H) e a morte fotografam o companheiro
+    /// (<see cref="CompanionStateStore"/>) e a invocação (F1) devolve o mesmo NPC — mesmos itens,
+    /// equipamento, aparência e modo de combate — em vez de nascer vazio com o loadout padrão.
+    /// </para>
+    ///
     /// Fluxo autoritativo: em single-player (e no host de um servidor local) o objeto é criado
     /// localmente com <c>Object.Instantiate</c>, e a <c>ZNetView</c> do prefab cuida do ZDO —
     /// é o mesmo caminho que o próprio jogo usa (ver <c>SpawnSystem.Spawn</c> e
@@ -113,6 +119,10 @@ namespace ModAIValheim.Companion
         /// <summary>Solta o estado estático (unload do plugin / fim do mundo).</summary>
         internal static void Shutdown()
         {
+            // Última chance de guardar o companheiro vivo (o ZNetScene.Shutdown já faz isso no fim
+            // do mundo; aqui é o caso da descarga do plugin).
+            CompanionStateStore.Shutdown();
+
             _companion = null;
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
@@ -134,7 +144,8 @@ namespace ModAIValheim.Companion
             }
 
             // Nunca duplicar: se existir uma instância viva (ex.: recarregada com a área),
-            // adotamos ela em vez de criar outra.
+            // adotamos ela em vez de criar outra. Neste caminho não restauramos snapshot: o NPC
+            // está vivo, com os itens dele (o snapshot só vale para um companheiro novo).
             CompanionAI existing = FindExistingCompanion();
             if (existing != null)
             {
@@ -195,10 +206,15 @@ namespace ModAIValheim.Companion
             ai.EnsureConfigured();
             ai.SetFollowTarget(player.gameObject);
 
-            // Aparência padrão (cabelo/barba/cores) e loadout da config; ambos tolerantes a
-            // prefab/config inexistente.
-            CompanionAppearance.Apply(ai);
-            CompanionInventory.ApplyDefaultLoadout(ai);
+            // Fase 2.7: se existe um snapshot (do último dismiss/morte/fim de mundo), o companheiro
+            // volta "o mesmo" — mesmos itens/equipamento, aparência e modo. Sem snapshot, vale o
+            // comportamento antigo: aparência padrão + loadout da config.
+            bool restored = CompanionStateStore.TryRestore(ai);
+            if (!restored)
+            {
+                CompanionAppearance.Apply(ai);
+                CompanionInventory.ApplyDefaultLoadout(ai);
+            }
 
             Character character = companion.GetComponent<Character>();
             if (character != null)
@@ -210,7 +226,9 @@ namespace ModAIValheim.Companion
             Plugin.Log.LogInfo(
                 $"[ModIA] Companheiro '{companion.name}' invocado em {position} " +
                 $"(prefab '{CompanionPrefab.PrefabName}', owner local: {netView.IsOwner()}).");
-            ShowMessage("Companheiro invocado!");
+            ShowMessage(restored
+                ? "Companheiro invocado! (itens guardados devolvidos)"
+                : "Companheiro invocado!");
         }
 
         private static void Dismiss()
@@ -221,6 +239,10 @@ namespace ModAIValheim.Companion
                 Plugin.Log.LogInfo("[ModIA] Nenhum companheiro para dispensar.");
                 return;
             }
+
+            // Fase 2.7: fotografa o companheiro ANTES de destruí-lo (itens, equipamento,
+            // aparência, modo) para o próximo F1 devolvê-lo igual.
+            CompanionStateStore.Capture(companion, "dispensa");
 
             ZNetView netView = companion.GetComponent<ZNetView>();
             if (netView == null || !netView.IsValid())
@@ -327,10 +349,19 @@ namespace ModAIValheim.Companion
 
         private static void OnCompanionDeath()
         {
+            // O jogo chama o m_onDeath ANTES de destruir o GameObject (Character.OnDeath), então o
+            // inventário ainda está inteiro aqui: é a hora de fotografar (Fase 2.7). Sem isso, os
+            // itens do companheiro morreriam com ele (o prefab é não-persistente).
+            CompanionAI dying = GetCompanion();
+            if (dying != null)
+            {
+                CompanionStateStore.Capture(dying, "morte");
+            }
+
             Plugin.Log.LogInfo("[ModIA] Companheiro morreu.");
             _companion = null;
             CompanionHarvest.Stop("companheiro morreu");
-            ShowMessage("Seu companheiro morreu!");
+            ShowMessage("Seu companheiro morreu! Os itens dele ficaram guardados (F1 invoca de novo).");
         }
 
         private static void ShowMessage(string text)

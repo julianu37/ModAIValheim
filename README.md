@@ -5,8 +5,9 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
 > equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, frutas…),
-> mostra **nome + teclas no hover** e tem um **menu no jogo** (status, aparência, combate, coleta e
-> teclas). Ainda faltam **multiplayer**, **voz/IA** e **backend**.
+> mostra **nome + teclas no hover**, tem um **menu no jogo** (status, aparência, combate, coleta e
+> teclas) e **volta o mesmo** depois de dispensado (itens, equipamento, aparência e modo). Ainda
+> faltam **multiplayer**, **voz/IA** e **backend**.
 
 ---
 
@@ -33,6 +34,7 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
 | `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`) |
 | `modia_stop` | Para a coleta e volta a seguir o jogador (também limpa o alvo de combate) |
+| `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
@@ -84,6 +86,38 @@ madeira** no estilo do Valheim, em PT-BR, com cinco seções:
 - O painel é **arrastável** (segure e mova pelo fundo) e o layout é montado **uma única vez** por
   sessão de mundo — não há recriação de UI por frame.
 
+### Persistência do companheiro (Fase 2.7)
+
+**Dispensar (H) não joga nada fora.** Ao dispensar, ao morrer e ao fechar o jogo/o mundo, o
+companheiro é **fotografado** (itens, equipamento, aparência e modo de combate) e a próxima
+**invocação (F1)** devolve **o mesmo companheiro** — em vez de um NPC vazio com o loadout padrão:
+
+- **Itens**: inventário completo (prefab, quantidade, qualidade, durabilidade, `worldLevel`).
+- **Equipamento**: o que estava equipado volta equipado (e o visual também, via `VisEquipment`).
+- **Aparência**: cabelo, barba, cor de pele e cor de cabelo/barba.
+- **Modo de combate**: Passive/Defensive/Aggressive.
+- **Vida**: volta **cheia** (a vida do snapshot é só informativa — dispensar não é morrer).
+
+Onde o estado fica guardado:
+
+| Onde | Sobrevive a | Config |
+|---|---|---|
+| **Memória** (sempre) | dispensar (H) e trocar de mundo na mesma sessão | — |
+| **Disco** (JSON em `BepInEx\config\modia.companion.state.json`) | **fechar e abrir o jogo** | `Companheiro/PersistirEntreSessoes` (padrão `true`) |
+
+- **Sem duplicação**: o companheiro nasce vazio e a restauração só *adiciona* o que estava no
+  snapshot; se o inventário já tiver itens, a restauração é recusada (e logada).
+- Item cujo **prefab não existe mais** (mod removido, item renomeado pelo jogo) é **pulado com log**,
+  e o arquivo tem número de versão de formato (arquivo antigo é ignorado, não corrompe o spawn).
+- Na **morte**, os itens ficam guardados (o `CharacterDrop` é removido do prefab, então o corpo não
+  dropa nada): re-invocar devolve o companheiro com o que ele tinha.
+- O snapshot vale **por instalação** (não por mundo): o companheiro guardado volta igual em qualquer
+  mundo. Isso é o que preserva os itens de quem fecha o jogo com o NPC vivo — o prefab é
+  **não-persistente**, nada dele vai para o save do mundo.
+- Para **esquecer** o companheiro guardado e voltar ao loadout padrão da config: `modia_state clear`
+  (ou desligue `PersistirEntreSessoes` para não gravar em disco).
+- `modia_state` (console) mostra o que está guardado: itens, equipados, modo, origem e data.
+
 ### Coleta de recursos (Fase 2.4b)
 
 O companheiro procura nós de coleta num raio (padrão 40 m), escolhe o de maior **valor esperado**
@@ -116,7 +150,7 @@ até não haver mais nó no raio.
 
 - **Geral** — `LogDetalhado`
 - **Teclas** — `SpawnKey` (F1), `DismissKey` (H), `CombatModeKey` (F3), `HarvestKey` (F4), `MenuKey` (Y)
-- **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`
+- **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`, `PersistirEntreSessoes`
 - **Aparencia** — `AparenciaPadrao`, `CabeloPrefab`, `BarbaPrefab`, `CorPele`, `CorCabelo`
 - **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`
 - **Coleta** — `RecursoPadrao`, `QuantidadePadrao`, `RaioVarredura`, `IntervaloVarredura`,
@@ -157,6 +191,17 @@ dotnet build src/ModAIValheim/ModAIValheim.csproj -c Debug
 ```
 
 Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual Studio 2026 (opcional).
+
+### Teste rápido da persistência (Fase 2.7)
+
+1. **F1** invoca o companheiro; `modia_inv` (console, **F5**) mostra o loadout padrão.
+2. Faça o companheiro pegar/ganhar itens (ex.: `modia_gather wood 20`), equipe algo
+   (`modia_equip AxeStone`) e troque o modo de combate (**F3**).
+3. **H** dispensa e **F1** invoca de novo: os itens, o equipamento, o modo e a aparência voltam —
+   confira com `modia_inv` e `modia_state` (e a mensagem "itens guardados devolvidos" no HUD).
+4. Com `Companheiro/PersistirEntreSessoes = true` (padrão), **feche e abra o jogo** e invoque de
+   novo: o companheiro volta igual.
+5. Para voltar ao comportamento antigo (loadout padrão), use `modia_state clear`.
 
 ---
 

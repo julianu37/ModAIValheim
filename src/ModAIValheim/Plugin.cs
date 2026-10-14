@@ -19,6 +19,9 @@ namespace ModAIValheim
     /// Fase 2.6a: hover do companheiro com o nome e as ações disponíveis (teclas reais da config).
     /// Fase 2.6b: menu do companheiro dentro do jogo (painel de madeira com status, aparência,
     /// combate, coleta e teclas), aberto por tecla quando o jogador está perto do companheiro.
+    /// Fase 2.7: persistência do companheiro — ao dispensar (H), ao morrer e no fim do mundo o NPC
+    /// é fotografado; a próxima invocação (F1) devolve o mesmo companheiro (itens, equipamento,
+    /// aparência e modo), com opção de guardar o estado em disco entre sessões.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -26,7 +29,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.9";
+        public const string PluginVersion = "0.3.0";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -56,6 +59,9 @@ namespace ModAIValheim
         private ConfigEntry<float> _combatLeashDistance;
         private ConfigEntry<bool> _attackNeutralAnimals;
         private ConfigEntry<float> _combatScanInterval;
+
+        // Persistencia do companheiro entre sessoes (Fase 2.7).
+        private ConfigEntry<bool> _persistBetweenSessions;
 
         // Coleta de recursos (Fase 2.4b).
         private ConfigEntry<KeyCode> _harvestKey;
@@ -119,6 +125,17 @@ namespace ModAIValheim
                 "Prefabs de armadura equipados no spawn, separados por virgula " +
                 "(ex.: ArmorLeatherChest,ArmorLeatherLegs,HelmetLeather). " +
                 "O slot e detectado pelo tipo do item. Vazio desliga.");
+
+            // Persistencia do companheiro (Fase 2.7).
+            _persistBetweenSessions = Config.Bind(
+                "Companheiro",
+                "PersistirEntreSessoes",
+                true,
+                "Guarda o estado do companheiro (itens, equipamento, aparencia e modo) em " +
+                "BepInEx/config/modia.companion.state.json, para ele voltar igual mesmo depois de " +
+                "FECHAR E ABRIR O JOGO. O estado em memoria (dismiss H -> invocar F1) funciona " +
+                "sempre, independente desta opcao. Desligada, cada sessao comeca com o loadout " +
+                "padrao. Use 'modia_state clear' para esquecer o companheiro guardado.");
 
             // Aparencia padrão do corpo de viking (Fase 2.3b).
             _appearanceEnabled = Config.Bind(
@@ -305,6 +322,9 @@ namespace ModAIValheim
                 $"[ModIA] Aparencia: padrao = {_appearanceEnabled.Value} | " +
                 $"cabelo = '{_hairPrefab.Value}' | barba = '{_beardPrefab.Value}' | " +
                 $"pele = '{_skinColor.Value}' | cabelo/cor = '{_hairColor.Value}'.");
+            Log.LogInfo(
+                $"[ModIA] Persistencia do companheiro: entre sessoes = " +
+                $"{_persistBetweenSessions.Value} (snapshot em memoria sempre ativo).");
 
             // Combate: modo, tecla de ciclo e raios (Fase 2.4a).
             CompanionCombat.Configure(
@@ -323,6 +343,9 @@ namespace ModAIValheim
             CompanionInventory.Configure(_equipLoadoutOnSpawn, _weaponPrefab, _armorPrefabs);
             CompanionAppearance.Configure(
                 _appearanceEnabled, _hairPrefab, _beardPrefab, _skinColor, _hairColor);
+
+            // Persistencia do companheiro (Fase 2.7): snapshot em memoria + arquivo opcional.
+            CompanionStateStore.Configure(_persistBetweenSessions);
 
             // Coleta de recursos: recurso/quantidade padrao, tecla, raio e convivencia com o
             // combate (Fase 2.4b).

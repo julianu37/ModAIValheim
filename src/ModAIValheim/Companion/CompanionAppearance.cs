@@ -308,6 +308,62 @@ namespace ModAIValheim.Companion
             ApplyCustomizationItem(visEq, _beardPrefab, BeardPrefix, false);
         }
 
+        /// <summary>
+        /// Aplica a aparência vinda do <b>snapshot</b> do companheiro (Fase 2.7), usada na
+        /// invocação quando existe estado salvo: o companheiro volta com o mesmo cabelo/barba e as
+        /// mesmas cores de quando foi dispensado.
+        ///
+        /// <para>
+        /// Não escreve na config de propósito — o snapshot é <i>histórico</i> (como o companheiro
+        /// estava), não uma preferência do jogador; a preferência continua sendo a config, que o
+        /// menu edita.
+        /// </para>
+        /// </summary>
+        internal static void ApplySnapshot(CompanionAI companion, CompanionState state)
+        {
+            if (companion == null || state == null)
+            {
+                return;
+            }
+
+            VisEquipment visEq = companion.GetComponent<VisEquipment>();
+            if (visEq == null)
+            {
+                Plugin.Log.LogWarning(
+                    "[ModIA] Companheiro sem VisEquipment; aparência do snapshot não aplicada.");
+                return;
+            }
+
+            if (!state.AppearanceEnabled)
+            {
+                visEq.SetSkinColor(Vector3.one);
+                visEq.SetHairColor(Vector3.one);
+                visEq.SetHairItem(0);
+                visEq.SetBeardItem(0);
+                Plugin.Log.LogInfo("[ModIA] Aparência do snapshot: desligada (visual padrão do jogo).");
+                return;
+            }
+
+            // Snapshot vazio/corrompido (tudo zero) cai nas cores padrão em vez de pintar de preto.
+            Vector3 skin = SanitizeColor(state.SkinColor, DefaultSkinColor);
+            Vector3 hair = SanitizeColor(state.HairColor, DefaultHairColor);
+
+            ApplyColors(visEq, skin, hair);
+
+            ApplyCustomizationItem(visEq, state.Hair, HairPrefix, true);
+            ApplyCustomizationItem(visEq, state.Beard, BeardPrefix, false);
+
+            Plugin.Log.LogInfo(
+                $"[ModIA] Aparência do snapshot aplicada (cabelo '{state.Hair}', " +
+                $"barba '{state.Beard}').");
+        }
+
+        /// <summary>Cor válida: usa o padrão quando o valor do snapshot é nulo (tudo zero).</summary>
+        private static Vector3 SanitizeColor(Vector3 value, Vector3 fallback)
+        {
+            return value == Vector3.zero ? fallback : value;
+        }
+
         // ---------------------------------------------------------------------
         // Cores
         // ---------------------------------------------------------------------
@@ -379,7 +435,20 @@ namespace ModAIValheim.Companion
             string prefix,
             bool isHair)
         {
-            string configured = entry?.Value?.Trim();
+            ApplyCustomizationItem(visEq, entry?.Value, prefix, isHair);
+        }
+
+        /// <summary>
+        /// Núcleo do cabelo/barba: recebe o valor direto (nome do prefab, "none" ou vazio =
+        /// automático) para servir tanto a config quanto o snapshot (Fase 2.7).
+        /// </summary>
+        private static void ApplyCustomizationItem(
+            VisEquipment visEq,
+            string configuredValue,
+            string prefix,
+            bool isHair)
+        {
+            string configured = configuredValue?.Trim();
             string label = isHair ? "cabelo" : "barba";
 
             if (IsDisabled(configured))

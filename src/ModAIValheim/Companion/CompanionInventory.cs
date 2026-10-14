@@ -202,6 +202,222 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
+        // Snapshot / restauração (Fase 2.7)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Preenche <paramref name="state"/> com o inventário e o equipamento atuais do companheiro
+        /// (é a metade "itens" do snapshot). Não aloca por frame: só é chamado no dismiss, na morte
+        /// e no fim do mundo.
+        /// </summary>
+        internal static void CaptureItems(CompanionAI companion, CompanionState state)
+        {
+            if (state == null)
+            {
+                return;
+            }
+
+            state.Items.Clear();
+
+            Humanoid humanoid = Resolve(companion);
+            if (humanoid == null)
+            {
+                return;
+            }
+
+            Inventory inventory = humanoid.GetInventory();
+            if (inventory == null)
+            {
+                Plugin.Log.LogWarning("[ModIA] Companheiro sem inventário; snapshot sai vazio.");
+                return;
+            }
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (item == null || item.m_shared == null)
+                {
+                    continue;
+                }
+
+                // O nome do prefab é a chave estável entre sessões (a instância do ObjectDB não
+                // sobrevive ao fechar o jogo). Itens sem m_dropPrefab não podem ser recriados.
+                if (item.m_dropPrefab == null)
+                {
+                    Plugin.Log.LogWarning(
+                        $"[ModIA] Item '{item.m_shared.m_name}' sem prefab de origem; " +
+                        "não entra no snapshot (não dá para recriar).");
+                    continue;
+                }
+
+                string prefabName = Utils.GetPrefabName(item.m_dropPrefab);
+                if (string.IsNullOrEmpty(prefabName))
+                {
+                    continue;
+                }
+
+                CompanionItemState record = new CompanionItemState();
+                record.Prefab = prefabName;
+                record.Stack = Mathf.Max(1, item.m_stack);
+                record.Quality = Mathf.Max(1, item.m_quality);
+                record.Durability = item.m_durability;
+                record.WorldLevel = item.m_worldLevel;
+                record.Variant = item.m_variant;
+                record.Equipped = humanoid.IsItemEquiped(item);
+                state.Items.Add(record);
+            }
+        }
+
+        /// <summary>
+        /// Devolve ao companheiro os itens do snapshot e reequipa os que estavam equipados.
+        ///
+        /// <para>
+        /// Reusa o caminho normal do mod: o item é criado do <c>ObjectDB</c> por
+        /// <see cref="CreateItem"/> (com pilha/qualidade/durabilidade/<c>worldLevel</c>/variante do
+        /// snapshot), entra no inventário pelo <c>Inventory.AddItem</c> e, se estava equipado,
+        /// passa pelo <see cref="EquipItemData"/> — que é o mesmo <c>Humanoid.EquipItem</c> +
+        /// <see cref="SyncVisual"/> do <c>modia_equip</c>.
+        /// </para>
+        ///
+        /// <para>
+        /// O companheiro nasce vazio, então só <b>adicionamos</b>: não há duplicação. Se por algum
+        /// motivo o inventário já tiver itens, a restauração é <b>recusada</b> (e logada) para não
+        /// duplicar. Item cujo prefab não existe mais é <b>pulado com log</b>.
+        /// </para>
+        /// </summary>
+        /// <returns>True se o inventário pôde ser restaurado (mesmo que algum item tenha sido pulado).</returns>
+        internal static bool RestoreItems(CompanionAI companion, CompanionState state)
+        {
+            if (state == null)
+            {
+                return false;
+            }
+
+            Humanoid humanoid = Resolve(companion);
+            if (humanoid == null)
+            {
+                return false;
+            }
+
+            Inventory inventory = humanoid.GetInventory();
+            if (inventory == null)
+            {
+                Plugin.Log.LogError("[ModIA] Companheiro sem inventário; snapshot não restaurado.");
+                return false;
+            }
+
+            if (inventory.NrOfItems() > 0)
+            {
+                Plugin.Log.LogWarning(
+                    "[ModIA] O companheiro recém-invocado já tem itens no inventário; " +
+                    "restauração do snapshot recusada para não duplicar.");
+                return false;
+            }
+
+            List<CompanionItemState> records = state.Items;
+            int added = 0;
+            int equipped = 0;
+            int skipped = 0;
+
+            for (int i = 0; i < records.Count; i++)
+            {
+                CompanionItemState record = records[i];
+                if (record == null || string.IsNullOrEmpty(record.Prefab))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                // Prefab sumiu (mod removido, item renomeado pelo jogo): loga e pula.
+                GameObject prefab = FindItemPrefab(record.Prefab);
+                if (prefab == null)
+                {
+                    Plugin.Log.LogWarning(
+                        $"[ModIA] Item '{record.Prefab}' do snapshot não existe mais; pulado.");
+                    skipped++;
+                    continue;
+                }
+
+                ItemDrop.ItemData item = CreateItem(
+                    prefab,
+                    record.Stack,
+                    record.Quality,
+                    record.Durability,
+                    record.WorldLevel,
+                    record.Variant);
+
+                if (item == null)
+                {
+                    skipped++;
+                    continue;
+                }
+
+                if (!inventory.AddItem(item))
+                {
+                    Plugin.Log.LogWarning(
+                        $"[ModIA] Inventário do companheiro cheio; '{record.Prefab}' do snapshot " +
+                        "ficou de fora.");
+                    skipped++;
+                    continue;
+                }
+
+                added++;
+
+                if (record.Equipped)
+                {
+                    // Itens empilháveis (ex.: flechas) podem ter sido absorvidos por um stack
+                    // existente: nesse caso quem está no inventário é o stack antigo, e é ele que
+                    // precisa voltar para o slot.
+                    ItemDrop.ItemData target = inventory.ContainsItem(item)
+                        ? item
+                        : FindInInventory(inventory, record.Prefab);
+
+                    if (target != null && EquipItemData(companion, target))
+                    {
+                        equipped++;
+                    }
+                }
+            }
+
+            Plugin.Log.LogInfo(
+                $"[ModIA] Snapshot restaurado no companheiro: {added} item(ns) devolvido(s), " +
+                $"{equipped} equipado(s), {skipped} pulado(s).");
+            return true;
+        }
+
+        /// <summary>
+        /// Equipa um <see cref="ItemDrop.ItemData"/> que já está no inventário (caminho da
+        /// restauração do snapshot: não cria nada, só equipa o que o snapshot trouxe).
+        /// </summary>
+        private static bool EquipItemData(CompanionAI companion, ItemDrop.ItemData item)
+        {
+            Humanoid humanoid = Resolve(companion);
+            if (humanoid == null || item == null)
+            {
+                return false;
+            }
+
+            if (humanoid.IsItemEquiped(item))
+            {
+                SyncVisual(humanoid, item, null);
+                return true;
+            }
+
+            // triggerEquipEffects: false — mesma escolha do EquipInternal (é o que o jogo faz para
+            // NPCs, e evita criar GameObjects de efeito).
+            if (!humanoid.EquipItem(item, triggerEquipEffects: false))
+            {
+                Plugin.Log.LogWarning(
+                    $"[ModIA] Humanoid.EquipItem recusou '{item.m_shared.m_name}' na restauração.");
+                return false;
+            }
+
+            SyncVisual(humanoid, item, null);
+            return true;
+        }
+
+        // ---------------------------------------------------------------------
         // Drop
         // ---------------------------------------------------------------------
 
@@ -565,25 +781,11 @@ namespace ModAIValheim.Companion
         /// </summary>
         private static ItemDrop.ItemData AddItems(Inventory inventory, GameObject prefab, int amount)
         {
-            ItemDrop drop = prefab.GetComponent<ItemDrop>();
-            if (drop == null)
+            // Mesmo valor que Inventory.AddItem(GameObject, int) usa.
+            ItemDrop.ItemData item = CreateItem(prefab, amount, 1, 0f, Game.m_worldLevel, 0);
+            if (item == null)
             {
                 return null;
-            }
-
-            int maxStack = Mathf.Max(1, drop.m_itemData.m_shared.m_maxStackSize);
-
-            ItemDrop.ItemData item = drop.m_itemData.Clone();
-            item.m_dropPrefab = prefab;
-            item.m_stack = Mathf.Clamp(amount, 1, maxStack);
-            // Mesmo valor que Inventory.AddItem(GameObject, int) usa.
-            item.m_worldLevel = (byte)Game.m_worldLevel;
-
-            // Item criado "do zero" pode vir com durabilidade zerada no template; sem isso o
-            // Humanoid.EquipItem recusaria a arma/armadura (regra: durabilidade <= 0 não equipa).
-            if (item.m_shared.m_useDurability && item.m_durability <= 0f)
-            {
-                item.m_durability = item.GetMaxDurability();
             }
 
             if (!inventory.AddItem(item))
@@ -594,6 +796,50 @@ namespace ModAIValheim.Companion
             // Para itens empilháveis o AddItem pode ter absorvido tudo em stacks existentes
             // (nesse caso a instância clonada não fica no inventário e não serve para equipar).
             return inventory.ContainsItem(item) ? item : null;
+        }
+
+        /// <summary>
+        /// Cria um <see cref="ItemDrop.ItemData"/> a partir do prefab de item, com os valores dados
+        /// (<c>0</c>/<c>≤ 0</c> = "use o padrão do item": durabilidade máxima, qualidade 1).
+        /// Não adiciona nada no inventário — quem chama decide.
+        /// </summary>
+        private static ItemDrop.ItemData CreateItem(
+            GameObject prefab,
+            int stack,
+            int quality,
+            float durability,
+            int worldLevel,
+            int variant)
+        {
+            if (prefab == null)
+            {
+                return null;
+            }
+
+            ItemDrop drop = prefab.GetComponent<ItemDrop>();
+            if (drop == null || drop.m_itemData == null || drop.m_itemData.m_shared == null)
+            {
+                return null;
+            }
+
+            ItemDrop.ItemData item = drop.m_itemData.Clone();
+            item.m_dropPrefab = prefab;
+            item.m_stack = Mathf.Clamp(stack, 1, Mathf.Max(1, item.m_shared.m_maxStackSize));
+            item.m_quality = Mathf.Clamp(quality, 1, Mathf.Max(1, item.m_shared.m_maxQuality));
+            item.m_variant = Mathf.Max(0, variant);
+            item.m_worldLevel = Mathf.Max(0, worldLevel);
+
+            // Item criado "do zero" pode vir com durabilidade zerada no template; sem isso o
+            // Humanoid.EquipItem recusaria a arma/armadura (regra: durabilidade <= 0 não equipa).
+            if (item.m_shared.m_useDurability)
+            {
+                float max = item.GetMaxDurability();
+                item.m_durability = durability > 0f
+                    ? Mathf.Clamp(durability, 0.01f, max)
+                    : max;
+            }
+
+            return item;
         }
 
         private static ItemDrop.ItemData FindInInventory(Inventory inventory, GameObject prefab)

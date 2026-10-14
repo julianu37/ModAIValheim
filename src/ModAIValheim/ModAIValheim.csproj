@@ -84,6 +84,12 @@
       <Private>false</Private>
     </Reference>
 
+    <!-- JsonUtility: usado pelo snapshot de persistencia do companheiro (Fase 2.7). -->
+    <Reference Include="UnityEngine.JSONSerializeModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.JSONSerializeModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+
     <!-- UI do Unity: usada pelo menu do mod (GUIManager do Jotunn + controles nativos).
          Dropdown/Slider/InputField/Toggle/Text/Image vem de UnityEngine.UI; Font/Text de
          TextRenderingModule; Canvas/CanvasRenderer de UIModule. -->

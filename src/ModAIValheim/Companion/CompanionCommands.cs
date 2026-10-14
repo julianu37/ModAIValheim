@@ -40,10 +40,11 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new ModeCommand());
             manager.AddConsoleCommand(new GatherCommand());
             manager.AddConsoleCommand(new StopCommand());
+            manager.AddConsoleCommand(new StateCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
-                "modia_mode, modia_gather, modia_stop.");
+                "modia_mode, modia_gather, modia_stop, modia_state.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -390,6 +391,45 @@ namespace ModAIValheim.Companion
                         ? $"[ModIA] Coleta parada ({collected} item(ns) coletado(s)); " +
                           "o companheiro voltou a seguir o jogador."
                         : "[ModIA] O companheiro não estava coletando; alvo de combate limpo.");
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_state [clear]
+        // ---------------------------------------------------------------------
+
+        private sealed class StateCommand : ConsoleCommand
+        {
+            public override string Name => "modia_state";
+
+            public override string Help =>
+                "Mostra o snapshot de persistência do companheiro (Fase 2.7: o que ele tinha ao ser " +
+                "dispensado/morrer). Uso: modia_state | modia_state clear. " +
+                "'clear' esquece o companheiro guardado (memória + arquivo): o próximo F1 volta a " +
+                "usar o loadout padrão da config.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (args != null && args.Length > 0 &&
+                    string.Equals(args[0]?.Trim(), "clear", System.StringComparison.OrdinalIgnoreCase))
+                {
+                    CompanionStateStore.Clear("comando modia_state clear");
+                    Report(
+                        context,
+                        "[ModIA] Companheiro guardado esquecido; o próximo spawn (F1) usa o loadout padrão.");
+                    return;
+                }
+
+                List<string> lines = CompanionStateStore.Describe();
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    Report(context, lines[i]);
+                }
             }
 
             public override void Run(string[] args)

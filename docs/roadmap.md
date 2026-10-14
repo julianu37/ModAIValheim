@@ -34,6 +34,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | **2.6** | **Interface** | 🔄 |
 | 2.6a | Hover do companheiro: nome + ações com as teclas (PT-BR, tokens de localização) | ✅ |
 | 2.6b | Menu do companheiro (painel Jotunn `GUIManager`): status, aparência ao vivo, combate, coleta e teclas | ✅ |
+| 2.7 | Persistência do companheiro: ao re-invocar (F1) volta o mesmo NPC (itens, equipamento, aparência e modo), com snapshot em memória + JSON opcional | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -68,3 +69,8 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   pela tecla `Y` com o NPC a até 5 m, com status, aparência **ao vivo** (`VisEquipment`),
   modo de combate, coleta e a lista de teclas. Input bloqueado enquanto aberto (`BlockInput`),
   controles montados uma vez e fechamento automático se o companheiro sumir/afastar.
+- **Fase 2.7 (0.3.0)** — **persistência do companheiro**: ao dispensar (H), ao morrer e no fim do
+  mundo/fechar o jogo o NPC é fotografado (`CompanionStateStore`) e o próximo F1 devolve o mesmo
+  companheiro (itens, equipamento, aparência e modo). Estado em memória sempre + JSON opcional em
+  `BepInEx\config\modia.companion.state.json` (`Companheiro/PersistirEntreSessoes`), com versão de
+  formato e itens revalidados contra o `ObjectDB`; `modia_state`/`modia_state clear` no console.

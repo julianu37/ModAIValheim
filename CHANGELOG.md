@@ -3,6 +3,49 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.3.0] — 2026-10-13
+
+### Adicionado
+- **Persistência do companheiro** (Fase 2.7): ao **dispensar (H)**, ao **morrer** e no **fim do
+  mundo/ao fechar o jogo** o NPC é fotografado e a próxima invocação (**F1**) devolve **o mesmo
+  companheiro** — mesmos itens no inventário, mesmos itens equipados, mesma aparência
+  (cabelo/barba/cores) e mesmo modo de combate — em vez de nascer vazio com o loadout padrão.
+- `CompanionState`/`CompanionItemState`: o snapshot (por item: prefab, pilha, qualidade,
+  durabilidade, `worldLevel`, variante e se estava **equipado**) + aparência + modo de combate +
+  vida (informativa) + origem/data da captura.
+- `CompanionStateStore`: estado em **memória estática** (sempre ativo — sobrevive ao dismiss e a
+  trocar de mundo dentro da sessão) e, opcionalmente, em **arquivo JSON** em
+  `BepInEx\config\modia.companion.state.json` (config `Companheiro/PersistirEntreSessoes`, padrão
+  `true`) para sobreviver a **fechar e abrir o jogo**. O arquivo tem `Version` de formato e os itens
+  são revalidados contra o `ObjectDB` na restauração: prefab que não existe mais é **pulado com log**.
+- `CompanionInventory.CaptureItems`/`RestoreItems`/`EquipItemData` (e o `CreateItem` compartilhado
+  com o loadout padrão): a restauração reusa o caminho normal do mod — item criado do `ObjectDB` →
+  `Inventory.AddItem` → `Humanoid.EquipItem` → `VisEquipment` (o mesmo do `modia_equip`).
+- `CompanionAppearance.ApplySnapshot`: aplica no spawn a aparência do snapshot (sem escrever na
+  config — o snapshot é histórico, não preferência; a preferência continua sendo o `.cfg`).
+- `CompanionStatePatches`: prefix Harmony **somente observador** em `ZNetScene.Shutdown` (o ponto por
+  onde o jogo sai do mundo e fecha), para guardar o companheiro de quem estava vivo e não foi
+  dispensado.
+- Comandos de console **`modia_state`** (mostra o companheiro guardado) e **`modia_state clear`**
+  (esquece o snapshot: o próximo F1 volta a usar o loadout padrão da config).
+- A mensagem de morte agora avisa que os itens do companheiro ficaram guardados.
+- Referência a `UnityEngine.JSONSerializeModule` (`JsonUtility`) no `.csproj`.
+
+### Notas
+- **Vida:** o companheiro volta com a vida **cheia** (a vida do snapshot é só informativa).
+  Dispensar é um ato deliberado e seguro — devolver o NPC com 3 % de vida porque ele foi guardado no
+  meio de uma briga seria uma armadilha; e na morte o snapshot é justamente o "renascer" dele.
+- **Morte:** o `Character.OnDeath` dispara o `m_onDeath` **antes** de destruir o GameObject, então o
+  snapshot é tirado com o inventário ainda inteiro. O `CharacterDrop` é removido do prefab, logo o
+  corpo não dropa nada — não há duplicação de itens.
+- **Sem duplicação:** o companheiro nasce vazio e a restauração só **adiciona** o que estava no
+  snapshot; se o inventário já tiver itens, a restauração é **recusada** e logada.
+- O arquivo de estado é **por instalação** (não por mundo): o companheiro guardado volta igual em
+  qualquer mundo — é isso que preserva os itens de quem fecha o jogo com o NPC vivo (o prefab é
+  não-persistente: nada dele vai para o save do mundo).
+- O snapshot **substitui** o loadout padrão enquanto existir: para voltar ao comportamento antigo,
+  `modia_state clear` (ou `Companheiro/PersistirEntreSessoes = false`).
+
 ## [0.2.9] — 2026-10-13
 
 ### Adicionado
