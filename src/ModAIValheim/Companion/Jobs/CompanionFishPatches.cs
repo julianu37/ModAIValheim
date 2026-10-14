@@ -113,6 +113,42 @@ namespace ModAIValheim.Companion.Jobs
     internal static class CompanionFishPatches
     {
         /// <summary>
+        /// Confere se os três patches entraram de fato (o <c>PatchAll</c> do plugin pode ter falhado
+        /// em outro patch e interrompido a lista). Sem eles o companheiro não pesca — é melhor dizer
+        /// isso no log na carga do que deixar o trabalho "misteriosamente" sem funcionar.
+        /// </summary>
+        internal static bool Verify(Harmony harmony)
+        {
+            if (harmony == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                return HasPrefix(harmony, AccessTools.Method(typeof(FishingFloat), "Setup")) &&
+                       HasPrefix(harmony, AccessTools.Method(typeof(FishingFloat), "GetOwner")) &&
+                       HasPrefix(harmony, AccessTools.Method(typeof(FishingFloat), "ReturnBait"));
+            }
+            catch (Exception e)
+            {
+                Plugin.Log.LogWarning($"[ModIA] Pescar: nao consegui conferir os patches: {e.Message}");
+                return false;
+            }
+        }
+
+        private static bool HasPrefix(Harmony harmony, System.Reflection.MethodInfo method)
+        {
+            if (method == null)
+            {
+                return false;
+            }
+
+            Patches info = Harmony.GetPatchInfo(method);
+            return info != null && info.Prefixes != null && info.Prefixes.Count > 0;
+        }
+
+        /// <summary>
         /// <c>FishingFloat.Setup</c>: monta o flutuador do companheiro no lugar do código vanilla
         /// (que grava um <i>user id</i> de jogador e explode quando o arremesso chega sem munição —
         /// <c>ammo.m_dropPrefab</c> com <c>ammo == null</c>).

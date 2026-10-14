@@ -935,6 +935,21 @@ namespace ModAIValheim
             {
                 Log.LogError($"[ModIA] Falha ao aplicar patches Harmony: {e}");
             }
+
+            // Fase 2.16: os patches do flutuador de pesca são o que permite o companheiro pescar
+            // (o FishingFloat só conhece jogadores). Confere na carga se eles entraram — sem isso o
+            // trabalho de pescar não funciona e é melhor saber pelo log do que "no escuro".
+            if (CompanionFishPatches.Verify(_harmony))
+            {
+                Log.LogInfo("[ModIA] Pescar: patches do flutuador de pesca (FishingFloat) aplicados.");
+            }
+            else
+            {
+                Log.LogWarning(
+                    "[ModIA] Pescar: os patches do flutuador de pesca NAO foram aplicados " +
+                    "(o jogo mudou ou outro patch falhou); o trabalho de pescar nao vai funcionar " +
+                    "neste build. Cacar/coletar seguem normais.");
+            }
         }
 
         /// <summary>
