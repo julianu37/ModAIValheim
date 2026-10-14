@@ -177,13 +177,13 @@ mod **fornece** a ferramenta (config acima) ou avisa no HUD.
 | `Grausten` (Grausten) | pedra | depósitos de Ashlands | picareta | ✅ funciona |
 | `CopperOre` (Minério de cobre) | minério | depósito de cobre (`MineRock5`) | picareta (tier 1) | ✅ funciona |
 | `TinOre` (Minério de estanho) | minério | depósito de estanho (`MineRock5`) | picareta (tier 1) | ✅ funciona |
-| `IronScrap` (Sucata de ferro) | minério | pilhas de sucata do pântano (`MineRock`) | picareta (tier 2+) | ✅ funciona |
-| `SilverOre` (Minério de prata) | minério | veio de prata (`MineRock5`, precisa de *wishbone* p/ achar) | picareta (tier 3) | ✅ funciona (com picareta forte) |
-| `BlackMetalScrap` (Sucata de metal negro) | minério | depósitos das planícies | picareta (tier 4) | ✅ funciona |
-| `CopperScrap` (Sucata de cobre) | minério | depósitos (Mistlands/Ashlands) | picareta | ✅ funciona |
-| `FlametalOreNew` (Minério de flametal) | minério | depósitos de Ashlands | picareta (tier alto) | ✅ funciona (com picareta forte) |
-| `Chitin` (Quitina) | minério | "barnacles" do Leviatã (mar) | picareta | ✅ funciona (precisa do Leviatã) |
-| `Crystal` (Cristal) | minério | cristais da montanha | picareta | ✅ funciona |
+| `IronScrap` (Sucata de ferro) | minério | pilhas de sucata do pântano (`MineRock`) | picareta (tier 1+) | ✅ funciona |
+| `SilverOre` (Minério de prata) | minério | veio de prata (`MineRock5`, precisa de *wishbone* p/ achar) | picareta (ferro ou melhor) | ✅ funciona (com picareta forte) |
+| `BlackMetalScrap` (Sucata de metal negro) | minério | depósito/campo de Fulings | picareta (metal negro) | ⚠️ depende de haver nó (ver ressalvas) |
+| `CopperScrap` (Sucata de cobre) | minério | depósitos (Mistlands/Ashlands) | picareta | ⚠️ depende de haver nó (ver ressalvas) |
+| `FlametalOreNew` (Minério de flametal) | minério | depósitos de Ashlands | picareta (tier alto) | ⚠️ depende de haver nó (ver ressalvas) |
+| `Chitin` (Quitina) | minério | "barnacles" do Leviatã (mar) | picareta | ⚠️ depende de haver nó (ver ressalvas) |
+| `Crystal` (Cristal) | minério | cristais da montanha | picareta | ⚠️ depende de haver nó (ver ressalvas) |
 | `Raspberry` (Framboesa) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
 | `Blueberries` (Mirtilos) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
 | `Cloudberry` (Amora-branca) | colhível | arbusto (`Pickable`) | — | ✅ funciona |
@@ -213,9 +213,12 @@ produção do jogador):
 | `Amber`, `AmberPearl`, `Ruby`, `SilverNecklace`, `Gold` | **baú / tesouro enterrado** (contêiner), não nó |
 | Peixe (`Fish*`) | pesca (a Fase de coleta não cobre a vara) |
 
-> Os nomes de prefab da tabela foram confirmados para o Valheim 1.0 (ver
-> `docs/re/harvesting-notes.md`). `Chitin` e `Crystal` são minerados de nós específicos (Leviatã e
-> cristais da montanha): entram na lista e o scanner os resolve pelo componente, como os demais.
+> **Ressalvas.** Os nomes de prefab da tabela são os do Valheim 1.0. Os itens marcados com ⚠️
+> (`BlackMetalScrap`, `CopperScrap`, `FlametalOreNew`, `Chitin`, `Crystal`) estão na lista curada e o
+> scanner os resolve pelo **componente do nó** (como qualquer outro material), mas a **fonte exata**
+> não pôde ser confirmada só pelo código do jogo (o nó é um asset do bundle). Se o item vier só de
+> **criatura/baú** no seu mundo, a varredura simplesmente não encontra nó e o log diz isso
+> (`nenhum nó de coleta no raio`); não há falso positivo. Confirme com `Geral/LogDetalhado = true`.
 
 ### Configuração (seções do `.cfg`)
 
