@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using Jotunn.Entities;
 using Jotunn.Managers;
 using ModAIValheim.Companion.Jobs;
+using UnityEngine;
 
 namespace ModAIValheim.Companion
 {
@@ -17,7 +18,8 @@ namespace ModAIValheim.Companion
     ///   <item><description><c>modia_mode [passive|defensive|aggressive]</c> — mostra/define o modo de combate.</description></item>
     ///   <item><description><c>modia_gather &lt;recurso&gt; [qtd]</c> — coleta de recursos (Fase 2.4b).</description></item>
     ///   <item><description><c>modia_stop</c> — para coleta, trabalho e combate (volta a seguir você).</description></item>
-    ///   <item><description><c>modia_job &lt;hunt|fish|stop&gt; [qtd]</c> — trabalhos: caçar e pescar (Fase 2.16).</description></item>
+    ///   <item><description><c>modia_job &lt;hunt|fish|farm|cook|smelt|stop&gt; [qtd]</c> — trabalhos: caçar, pescar, cultivar, cozinhar e fundir (Fase 2.16).</description></item>
+    ///   <item><description><c>modia_farm &lt;set|clear|info&gt; [raio]</c> — zona de fazenda do trabalho de cultivar (Fase 2.16b).</description></item>
     ///   <item><description><c>modia_stats</c> — comidas ativas, resistência (stamina) e perícias do companheiro (Fase 2.13).</description></item>
     /// </list>
     ///
@@ -49,11 +51,12 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new StatsCommand());
             manager.AddConsoleCommand(new DepositCommand());
             manager.AddConsoleCommand(new JobCommand());
+            manager.AddConsoleCommand(new FarmCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
                 "modia_mode, modia_gather, modia_stop, modia_state, modia_stats, modia_deposit, " +
-                "modia_job.");
+                "modia_job, modia_farm.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -543,7 +546,7 @@ namespace ModAIValheim.Companion
                     $"[ModIA] Deposito: {CompanionDeposit.Describe()} | " +
                     $"Tool keeper: {CompanionToolKeeper.Describe()}.");
 
-                // Fase 2.16: trabalhos (caçar/pescar) — a fila única.
+                // Fase 2.16: trabalhos (caçar/pescar/cultivar/cozinhar/fundir) — a fila única.
                 Report(
                     context,
                     $"[ModIA] Trabalho: {CompanionJobQueue.Describe()} " +
@@ -566,10 +569,13 @@ namespace ModAIValheim.Companion
 
             public override string Help =>
                 "Manda o companheiro executar um trabalho (um por vez, ate ele acabar). " +
-                "Uso: modia_job <hunt|fish|stop> [quantidade]. " +
-                "Ex.: modia_job hunt 5 | modia_job pescar | modia_job stop. " +
+                "Uso: modia_job <hunt|fish|farm|cook|smelt|stop> [quantidade]. " +
+                "Ex.: modia_job hunt 5 | modia_job pescar | modia_job farm | modia_job stop. " +
                 "hunt = cacar fauna por perto, abater e catar o que caiu; " +
                 "fish = pescar com vara numa margem proxima; " +
+                "farm = cultivar na zona de fazenda (modia_farm set): plantar, colher e guardar; " +
+                "cook = cozinhar/preparar bebidas (abastecer, esperar e retirar o pronto); " +
+                "smelt = operar fundicoes (forno/alto-forno/carvoeira); " +
                 "stop = parar o trabalho. Sem quantidade vale Jobs/QuantidadePadrao " +
                 "(0 = sem limite: trabalha enquanto houver o que fazer no raio).";
 
@@ -623,8 +629,8 @@ namespace ModAIValheim.Companion
                 {
                     Report(
                         context,
-                        $"[ModIA] Trabalho '{args[0]}' desconhecido. Use: hunt (cacar), fish (pescar) " +
-                        "ou stop.");
+                        $"[ModIA] Trabalho '{args[0]}' desconhecido. Use: hunt (cacar), fish (pescar), " +
+                        "farm (cultivar), cook (cozinhar), smelt (fundir) ou stop.");
                     return;
                 }
 
@@ -662,9 +668,125 @@ namespace ModAIValheim.Companion
                     case "pesca":
                         return new FishJob();
 
+                    case "farm":
+                    case "fazenda":
+                    case "cultivar":
+                        return new FarmJob();
+
+                    case "cook":
+                    case "cozinhar":
+                    case "cozinha":
+                    case "bebida":
+                        return new CookJob();
+
+                    case "smelt":
+                    case "fundir":
+                    case "fundicao":
+                    case "fundição":
+                        return new SmeltJob();
+
                     default:
                         return null;
                 }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_farm <set|clear|info> [raio]
+        // ---------------------------------------------------------------------
+
+        private sealed class FarmCommand : ConsoleCommand
+        {
+            public override string Name => "modia_farm";
+
+            public override string Help =>
+                "Define a ZONA DE FAZENDA do trabalho de cultivar (Fase 2.16b). " +
+                "Uso: modia_farm <set|clear|info> [raio]. " +
+                "set = define a zona no ponto onde VOCE esta (raio opcional em metros, padrao " +
+                "Jobs/FarmRaio); clear = apaga a zona; info = mostra a zona atual e as sementes que " +
+                "ele sabe plantar. A zona fica gravada no .cfg (Jobs/FarmZona) e sobrevive a " +
+                "reinicios. Depois: modia_job farm.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                string action = args != null && args.Length > 0 && args[0] != null
+                    ? args[0].Trim().ToLowerInvariant()
+                    : "info";
+
+                switch (action)
+                {
+                    case "set":
+                    case "definir":
+                        Set(context, args);
+                        return;
+
+                    case "clear":
+                    case "apagar":
+                    case "limpar":
+                        CompanionJobsConfig.SetFarmZone(default);
+                        Report(context, "[ModIA] Zona de fazenda apagada (o trabalho de cultivar nao tem onde trabalhar).");
+                        return;
+
+                    default:
+                        Info(context);
+                        return;
+                }
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+
+            private static void Set(Terminal context, string[] args)
+            {
+                Player player = Player.m_localPlayer;
+                if (player == null)
+                {
+                    Report(context, "[ModIA] Sem jogador local: nao sei onde definir a zona.");
+                    return;
+                }
+
+                float radius = CompanionJobsConfig.FarmRadius;
+                if (args != null && args.Length >= 2 && !float.TryParse(
+                        args[1], System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out radius))
+                {
+                    Report(context, $"[ModIA] Raio invalido: '{args[1]}'.");
+                    return;
+                }
+
+                radius = Mathf.Clamp(radius, 2f, 60f);
+
+                Vector3 center = player.transform.position;
+                FarmZone zone = new FarmZone { Center = center, Radius = radius, Crop = string.Empty };
+                CompanionJobsConfig.SetFarmZone(zone);
+
+                Report(
+                    context,
+                    $"[ModIA] Zona de fazenda definida em {center.x:0.#}, {center.z:0.#} com raio " +
+                    $"{radius:0.#} m (gravada em Jobs/FarmZona). Agora: modia_job farm.");
+            }
+
+            private static void Info(Terminal context)
+            {
+                FarmZone zone = CompanionJobsConfig.FarmZone;
+                Report(context, $"[ModIA] Zona de fazenda: {zone.Describe()}.");
+
+                List<string> seeds = FarmCatalog.Describe();
+                if (seeds.Count == 0)
+                {
+                    Report(context, "[ModIA] Culturas: nenhuma encontrada nos prefabs do jogo.");
+                    return;
+                }
+
+                Report(
+                    context,
+                    $"[ModIA] Culturas plantaveis ({seeds.Count}): {string.Join(", ", seeds.ToArray())}.");
+                Report(
+                    context,
+                    "[ModIA] Ele planta so o que tiver de semente no inventario (e so em terreno " +
+                    "cultivado, no raio da zona).");
             }
         }
 

@@ -36,7 +36,8 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **F4** | Iniciar/parar a coleta do **recurso padrão** (config `Coleta/RecursoPadrao`, padrão `Wood`) |
 | **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
 | `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`, `modia_gather cobre 30`) — ver a [lista de materiais](#materiais-suportados-fase-28) |
-| `modia_job <hunt\|fish\|stop> [qtd]` | Manda o companheiro **executar um trabalho** (caçar/pescar) — ver [Trabalhos](#trabalhos-jobs-fase-216) |
+| `modia_job <hunt\|fish\|farm\|cook\|smelt\|stop> [qtd]` | Manda o companheiro **executar um trabalho** (caçar, pescar, cultivar, cozinhar, fundir) — ver [Trabalhos](#trabalhos-jobs-fase-216) |
+| `modia_farm <set\|clear\|info> [raio]` | Define a **zona de fazenda** do trabalho de cultivar no ponto onde você está (raio opcional) |
 | `modia_stop` | Para a coleta, o trabalho e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
@@ -485,7 +486,7 @@ fica vagando.
 
 O menu (**Y**) mostra `Carga: 123/300 kg` no painel **Coleta** quando existe teto configurado.
 
-### Trabalhos (jobs) — Fase 2.16a
+### Trabalhos (jobs) — Fase 2.16
 
 O companheiro não é mais só "segue e coleta": você **aponta para o trabalho** e ele **executa de
 ponta a ponta** (o "aponte-os para o seu trabalho" do [`docs/vision.md`](docs/vision.md)).
@@ -493,6 +494,10 @@ ponta a ponta** (o "aponte-os para o seu trabalho" do [`docs/vision.md`](docs/vi
 ```
 modia_job hunt 5     # caçar: abate 5 animais por perto e cata o que caiu
 modia_job fish       # pescar: vara na mão, arremessa e puxa (sem limite)
+modia_farm set 10    # define a fazenda: raio de 10 m no ponto onde você está
+modia_job farm       # cultivar: planta, colhe e guarda a colheita
+modia_job cook       # cozinhar/bebidas: abastece, espera e retira o que ficou pronto
+modia_job smelt      # fundições: abastece forno/alto-forno/carvoeira e retira o produto
 modia_job stop       # para o trabalho (o mesmo que modia_stop)
 ```
 
@@ -514,6 +519,8 @@ modia_job stop       # para o trabalho (o mesmo que modia_stop)
   padrão 2 s), usa buffers reaproveitados e o log de eventos é **deduplicado** (a mesma linha não
   repete dentro de 10 s).
 - **Rede de segurança:** `Jobs/TempoMaximoPorJob` (padrão 20 min) encerra um trabalho que trava.
+- **Dono do movimento:** cada trabalho tem o seu (`MovementOwner.Hunt/Fish/Farm/Cook/Smelt`) — um só
+  dirige o passo por frame, como na coleta.
 
 #### Caçar
 
@@ -559,13 +566,97 @@ sem peixe (o vanilla só devolve para jogadores).
 > em volta do local) e o "voltar para casa com a carga cheia" — hoje a margem é procurada **em volta
 > do peixe escolhido** e a carga cheia continua sendo resolvida pelo depósito em baú da 2.14.
 
+#### Cultivar
+
+1. Primeiro você **define a zona de fazenda**: fique no canteiro e use `modia_farm set` (raio padrão
+   `Jobs/FarmRaio`, 8 m) ou `modia_farm set 12`. A zona (centro + raio) fica **gravada no `.cfg`**
+   (`Jobs/FarmZona`), então sobrevive a reinícios; `modia_farm clear` apaga e `modia_farm info` mostra
+   a zona e **quais culturas ele sabe plantar**.
+2. Em cada varredura ele olha a zona e, **na ordem**: **colhe** a planta pronta mais perto → **planta**
+   sementes do inventário nas vagas livres → se não há nada a fazer mas tem planta crescendo, **espera
+   no canteiro** (é o "cuidar do canteiro" até a colheita ficar pronta). Sem semente, sem planta
+   crescendo e sem fruta pronta, o trabalho encerra sozinho.
+3. **Colher:** a planta pronta é um `Pickable` do jogo e ele usa o `Interact` (o mesmo caminho do
+   jogador, só que com o `Humanoid` do companheiro) — o jogo larga os frutos no chão e ele **cata**.
+4. **Plantar:** ele consome **uma semente do inventário** e instancia o prefab da planta no ponto,
+   com a mesma sequência do jogo (`TerrainModifier.SetTriggerOnPlaced` + `Instantiate` + efeito de
+   colocação). A vaga tem de ser **terreno cultivado** (arado com o Cultivator), no **bioma** da
+   cultura, **sem planta/peça/colhível por perto** (espaçamento = o maior entre
+   `Jobs/FarmEspacamento` e o raio de crescimento da cultura) e **com acesso** (respeita área privada).
+5. **Guardar:** a cada `Jobs/FarmDepositarCada` itens colhidos (padrão 20) ele leva a colheita ao
+   baú mais próximo — é o **depósito da Fase 2.14**, com uma diferença: as **sementes** (e os
+   vegetais que produzem semente) ficam no inventário até `Jobs/FarmManterSementes` (padrão 20), senão
+   a primeira viagem ao baú levaria justamente o que ele precisa para replantar.
+
+**O que ele sabe plantar/colher** vem dos **prefabs do jogo** (`FarmCatalog`): o prefab plantável é o
+que tem `Plant` + `Piece`, e o custo da peça (`m_resources[0]`) é a **semente** — é assim que se
+descobre que `CarrotSeeds` planta a cenoura e que a própria `Carrot` planta o `sapling_carrot_seed`
+(a rotação semente ↔ vegetal fecha). Só entram culturas de **terreno cultivado**, o que deixa **mudas
+de árvore** de fora.
+
+> **Fora do núcleo:** a **UI** de escolher a cultura e de posicionar a zona com o mouse (o "picker" e
+> o "placer" da referência) — hoje a zona vem do comando e a cultura é a que estiver no inventário
+> (a config `Jobs/FarmZona` já guarda um campo de cultura para quando a UI chegar); a **rotação de
+> culturas em fileiras**; e **buscar/guardar sementes em baús** (ele usa só o que tem no inventário).
+
+#### Cozinhar / preparar bebidas
+
+1. A cada varredura ele procura estações num raio (`Jobs/CozinhaRaio`, padrão 20 m): **espeto /
+   forno de cozinha** (`CookingStation`), **barril de fermentação** (`Fermenter`) e **caldeirão /
+   mesa de preparo** (`CraftingStation` que exige fogo).
+2. **Prioridade das tarefas:** retirar o que **ficou pronto (ou está queimando)** → tornear o
+   **barril pronto** → cozinhar no **caldeirão** → **reabastecer o fogo** → **pôr comida** no
+   espeto/forno → **encher o barril** vazio. Assim ele nunca deixa a comida queimar no pé nem o fogo
+   apagar com o espeto cheio.
+3. **Abastecer:** combustível e comida saem do **inventário do companheiro**. O fogo é mantido em
+   `Jobs/CozinhaNivelCombustivel` (padrão 50%) do máximo — não precisa encher até o teto, só o
+   suficiente para cozinhar. O espeto que **exige fogueira** também é atendido: ele reabastece a
+   fogueira embaixo dele.
+4. **Esperar:** com tudo abastecido ele fica por perto ("esperando o preparo") e volta a agir assim
+   que algo fica pronto — até `Jobs/CozinhaEsperaPreparo` (padrão 4 min), a rede de segurança para um
+   espeto sem fogo.
+5. **Retirar:** o prato pronto é tirado da estação e **catado** do chão. O barril é **torneirado** e
+   as garrafas (que o jogo larga 1,5 s depois) são catadas também.
+
+**Como ele fala com as estações:** pelo **RPC do ZNetView** — o mesmo caminho que o jogo usa por
+baixo do `Interact` (`RPC_AddItem`, `RPC_AddFuel`, `RPC_RemoveDoneItem`, `RPC_Tap`). O `Interact` do
+jogo mexe em perícia/estatística do **jogador** e na GUI de craft, o que não é do companheiro. O
+estado é lido direto do ZDO (`slotN`/`slotstatusN` no espeto, `Content`/`StartTime` no barril).
+
+> **Fora do núcleo:** a **lista curada de receitas** da referência (foco por chefe, prioridades,
+> "quanto já tem na mochila") — aqui o caldeirão escolhe a primeira receita habilitada da estação
+> para a qual ele tem todos os ingredientes; **colmeias** e a manutenção da base (Fase 2.17); e
+> **buscar combustível/comida em baús** (os insumos vêm do inventário). O caldeirão entrega o prato
+> direto no inventário (o jogo só tem o caminho da GUI de craft, que é do jogador) — sem o bônus de
+> rendimento por perícia.
+
+#### Fundições
+
+1. Ele procura **fornos** num raio (`Jobs/FundicaoRaio`, padrão 20 m): **forno** e **alto-forno**
+   (`Smelter`) e **carvoeira** (`Smelter` com `m_maxFuel == 0`, que faz carvão de madeira sem
+   combustível).
+2. **Prioridade:** **catar o produto** (barra/carvão) que a fornalha largou no chão → **combustível**
+   → **minério**. O minério é escolhido pelas **conversões do próprio forno** (`m_conversion`), então
+   o mesmo código serve para forno, alto-forno e carvoeira.
+3. **Abastecer:** ele põe uma unidade por vez (como o jogador) via `RPC_AddOre`/`RPC_AddFuel`, até
+   `Jobs/FundicaoPorViagem` por ida (padrão 30) e conferindo o ZDO antes de cada unidade (fila cheia
+   ou combustível no teto: ele para).
+4. **Retirar:** o `Smelter` larga o produto no **ponto de saída** sozinho (quando a fila de minério
+   esvazia ou o combustível acaba) — o companheiro **cata** o que apareceu e guarda no inventário
+   (e no baú, pelo depósito da 2.14, quando a carga aperta).
+
+> **Fora do núcleo:** **buscar minério/combustível em baús** (a referência usa o tool keeper e as
+> pilhas de recurso — aqui, como pede a tarefa, os insumos vêm do inventário); a **ordenação entre
+> vários fornos** por fila/percentual; e **pilhas de recurso no chão**.
+
 #### Leitura e HUD
 
 | Onde | O que mostra |
 |---|---|
-| HUD (canto superior esquerdo) | início do trabalho, cada abate/peixe e o encerramento (com o motivo) |
-| `modia_stats` (F5) | `Trabalho: Caçar (2/5, 1.4 min) — caçando Javali` (ou `nenhum`) |
+| HUD (canto superior esquerdo) | início do trabalho, cada abate/peixe/colheita/produto e o encerramento (com o motivo) |
+| `modia_stats` (F5) | `Trabalho: Cultivar (3, 2.1 min) — colhendo Carrot` (ou `nenhum`) |
 | `modia_job` sem argumento | o trabalho atual |
+| `modia_farm` sem argumento | a zona de fazenda e as culturas plantáveis |
 | log do BepInEx | cada passo relevante, deduplicado |
 
 ### Configuração (seções do `.cfg`)
@@ -588,7 +679,11 @@ sem peixe (o vanilla só devolve para jogadores).
 - **Skills** — `EvoluirSkills`, `AvisarSubidaDeNivel`, `PerderSkillsAoMorrer`, `FatorPerdaAoMorrer`
 - **Jobs** — `Ligado`, `QuantidadePadrao`, `TempoMaximoPorJob`, `IntervaloVarredura`, `RaioHunt`,
   `RaioFish`, `DistanciaArremesso`, `EsperaFisgada`, `StaminaMinimaArremesso`, `FornecerVara`,
-  `VaraPrefab`, `FornecerIsca`, `IscaPrefab`, `IscaQuantidade`
+  `VaraPrefab`, `FornecerIsca`, `IscaPrefab`, `IscaQuantidade`,
+  `FarmZona`, `FarmRaio`, `FarmPlantar`, `FarmColher`, `FarmEspacamento`, `FarmDepositarCada`,
+  `FarmManterSementes`, `CozinhaRaio`, `CozinhaCombustivel`, `CozinhaNivelCombustivel`,
+  `CozinhaRetirarPronto`, `CozinhaCaldeirao`, `CozinhaEsperaPreparo`, `FundicaoRaio`,
+  `FundicaoCombustivel`, `FundicaoRetirarProduto`, `FundicaoPorViagem`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -609,7 +704,7 @@ ModIA/
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
 │  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu...
-│  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob (caçar), FishJob (pescar) + patches do flutuador
+│  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob, FishJob, FarmJob (+ FarmZone/FarmCatalog), CookJob, SmeltJob, JobStations + patches do flutuador
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -835,7 +930,7 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
    aparência, hover, menu e persistência seguem iguais. Com `Companheiro/PesoMaximo = 0` e
    `Coleta/DepositarAoEncher = false` o comportamento é **exatamente** o da 0.4.1.
 
-### Teste rápido dos trabalhos (Fase 2.16a)
+### Teste rápido dos trabalhos (Fase 2.16)
 
 1. **Caçar:** invoque o companheiro (F1), deixe o modo em **Defensivo** ou **Agressivo**
    (`modia_mode defensive`) e vá a um campo com javalis/cervos.
@@ -845,7 +940,7 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
      `abati 'Javali' (abate 1/2)` + `Abate: Javali (1/2)` no HUD; em seguida ele **cata o couro** (a
      camada de loot da 2.12: `Loot: ...` no log) e só então vai atrás do próximo.
    - Com a quantidade atingida: `[ModIA] Trabalho Caçar encerrado (meta atingida): 2/2 em 1,4 min.` e
-     ele volta a te seguir. `modia_stats` mostra `Trabalho: nenhum (use modia_job hunt|fish)`.
+     ele volta a te seguir. `modia_stats` mostra `Trabalho: nenhum (use modia_job hunt|fish|farm|cook|smelt)`.
    - **Modo passivo:** `modia_mode passive` + `modia_job hunt` → recusa com aviso ("ele nao ataca
      nada"); trocar para passive **durante** o trabalho encerra a caça.
 2. **Caça sem fauna:** num lugar sem animais, `modia_job hunt` → depois de 3 varreduras (~6 s)
@@ -869,6 +964,53 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 5. **Nada mais mudou:** spawn/dismiss, follow, combate, coleta, loot, comida/stamina/skills, peso/
    depósito/tool keeper, movimento, aparência, hover, menu e persistência seguem iguais — com
    `Jobs/Ligado = false` o `modia_job` recusa e o mod fica exatamente como na 0.4.2.
+
+### Teste rápido de cultivar, cozinhar e fundir (Fase 2.16b)
+
+> **Como dar insumos ao companheiro:** o jeito mais direto é **jogar o item no chão** e mandar
+> `modia_gather <prefab> <qtd>` (ele cata itens do chão — é a coleta da Fase 2.4b). Vale para
+> sementes, comida, combustível e minério.
+
+1. **Cultivar — zona:** arade o canteiro com o **Cultivator** (o jogo exige terreno cultivado), fique
+   no meio dele e use `modia_farm set 8` → no console
+   `Zona de fazenda definida em X, Z com raio 8 m (gravada em Jobs/FarmZona)`. `modia_farm` (sem
+   argumento) mostra a zona e as culturas que ele sabe plantar (`Culturas plantaveis (N): ...`).
+2. **Cultivar — sementes:** jogue `CarrotSeeds` no chão e `modia_gather CarrotSeeds 20` → ele cata e
+   volta a te seguir.
+3. **Cultivar — plantar:** `modia_job farm` → no log
+   `[ModIA] Cultivar: indo plantar 'CarrotSeeds' em X, Z` e `plantei 'CarrotSeeds' em X, Z (19 restantes)`.
+   Ele repete até acabar a semente ou o espaço. Sem nada para fazer e com planta crescendo, o status
+   fica `esperando as plantas crescerem` e ele **fica no canteiro**.
+   - `modia_stats` → `Trabalho: Cultivar (3, 1.2 min) — esperando as plantas crescerem`.
+   - Sem zona definida: `modia_job farm` recusa com "Nenhuma zona de fazenda definida".
+   - Sem semente e sem nada crescendo: `Cultivar encerrado (nada para plantar nem colher na zona)`.
+4. **Cultivar — colher:** espere a planta crescer (com `Jobs/TempoMaximoPorJob = 0` ele fica
+   esperando) → no log `indo colher 'Carrot' a 1,8 m`, `colhi 'Carrot'`, `catei 2 item(ns) da
+   colheita` e, a cada 20 itens (`Jobs/FarmDepositarCada`), `colheita na mochila; levando ao bau` (a
+   viagem da 2.14 pausa o trabalho e ele volta depois). As **sementes ficam** no inventário
+   (`Jobs/FarmManterSementes`).
+5. **Cozinhar:** dê **madeira** (combustível) e **carne crua** ao companheiro (jogue no chão +
+   `modia_gather Wood 20` / `modia_gather RawMeat 5`), acenda uma **fogueira** com um **espeto** em
+   cima (ou um forno de cozinha) e mande `modia_job cook`.
+   - Log esperado: `pus 1x 'Wood' no fogo (mantido em 50% do maximo)` → `pus 2x 'RawMeat' na estacao;
+     agora e esperar ficar pronto` → `esperando o preparo` → quando ficar pronto:
+     `retirei o que ficou pronto da estacao` + `catei 1 item(ns) da estacao`.
+   - **Barril de fermentação:** com uma base de bebida (ex.: `MeadBaseHealthMinor`) no inventário e um
+     barril vazio por perto, ele põe (`pus 'MeadBaseHealthMinor' no barril de fermentacao`) e, quando
+     ficar pronto, torneira (`torneirei o barril de fermentacao`) e cata as garrafas.
+   - **Caldeirão:** com os ingredientes de uma receita e o fogo aceso, `fiz 1x 'QueensJam' no caldeirao`.
+   - Sem nada para fazer: `Cozinhar encerrado (nada para fazer nas estacoes de cozinha)`.
+6. **Fundir:** dê **minério** e **carvão** ao companheiro (`modia_gather CopperOre 20` /
+   `modia_gather Coal 20` — carvão é o combustível do forno) e mande `modia_job smelt` perto de um
+   **forno**.
+   - Log: `pus 10x 'Coal' de combustivel no forno` → `pus 10x 'CopperOre' na fila do forno` →
+     `esperando o forno` → quando a fila esvaziar, o jogo larga as barras e ele cata:
+     `catei 4 produto(s) da fornalha`.
+   - **Carvoeira:** com `Wood` no inventário, ele abastece sem combustível e cata `Coal`.
+   - Sem forno por perto: `Fundir encerrado (nada para fazer nas fundicoes)`.
+7. **Interrupções:** durante qualquer um dos trabalhos, `modia_gather wood` ou encher a mochila
+   **pausa** o trabalho (a viagem ao baú vence) e ele retoma depois; `modia_stop` (ou
+   `modia_job stop`) encerra na hora e ele volta a seguir você.
 
 ---
 

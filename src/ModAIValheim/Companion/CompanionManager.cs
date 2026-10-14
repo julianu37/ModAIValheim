@@ -136,6 +136,7 @@ namespace ModAIValheim.Companion
 
             _companion = null;
             CompanionJobQueue.Shutdown();
+            FarmCatalog.Reset();
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
             CompanionHarvest.Shutdown();

@@ -2694,6 +2694,66 @@ namespace ModAIValheim.Companion
             return m_character != null && m_character.StartAttack(null, false);
         }
 
+        /// <summary>
+        /// Pega um item caído no chão (<see cref="ItemDrop"/>) pelo mesmo caminho do jogador
+        /// (<c>Humanoid.Pickup</c>, que valida, põe no inventário, toca o efeito e destrói o item do
+        /// mundo). É o que os trabalhos de estação (cozinhar/fundir) usam para catar o produto que a
+        /// estação largou.
+        ///
+        /// <para>
+        /// Devolve <c>false</c> quando o item não é do companheiro ainda (pede a posse e tenta no
+        /// próximo tick), quando não é um <see cref="ItemDrop"/> ou quando o inventário não aceita —
+        /// quem chamou decide (o trabalho pede a viagem ao baú e pausa). Não espera por rede.
+        /// </para>
+        /// </summary>
+        internal bool JobPickup(GameObject drop)
+        {
+            Humanoid humanoid = m_character as Humanoid;
+            if (humanoid == null || drop == null)
+            {
+                return false;
+            }
+
+            ItemDrop item = drop.GetComponent<ItemDrop>();
+            if (item == null)
+            {
+                return false;
+            }
+
+            ZNetView netView = drop.GetComponent<ZNetView>();
+            if (netView != null && netView.IsValid() && !netView.IsOwner())
+            {
+                item.RequestOwn();
+                return false;
+            }
+
+            return humanoid.Pickup(drop, autoequip: false, autoPickupDelay: false);
+        }
+
+        /// <summary>
+        /// O inventário do companheiro não aceita mais nada (peso estourado ou sem vaga): pede a
+        /// viagem ao baú da Fase 2.14 (a camada de depósito assume e o trabalho pausa sozinho) ou
+        /// avisa que ele está cheio. É o mesmo tratamento da coleta, exposto para os trabalhos.
+        /// </summary>
+        internal void JobReportPackFull(ItemDrop.ItemData item)
+        {
+            HandlePackFull(JobInventory, item);
+        }
+
+        /// <summary>
+        /// A carga passou do teto (<c>Companheiro/PesoMaximo</c>) ou o inventário está sem vaga?
+        /// Os trabalhos usam isto antes de catar/produzir para não encher e ficar parado.
+        /// </summary>
+        internal bool JobIsPackFull
+        {
+            get
+            {
+                Inventory inventory = JobInventory;
+                return inventory != null &&
+                       (CompanionInventory.IsOverWeight(inventory) || !inventory.HaveEmptySlot());
+            }
+        }
+
         // ---------------------------------------------------------------------
         // Configuração de identidade / ajustes
         // ---------------------------------------------------------------------

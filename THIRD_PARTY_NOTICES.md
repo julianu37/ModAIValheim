@@ -96,3 +96,26 @@ SOFTWARE.
 >   (`CompanionJob`/`CompanionJobQueue`/`HuntJob`/`FishJob`/`CompanionFishPatches`, adaptados ao
 >   modelo de camadas do `CompanionAI`, ao `CompanionLoot` da Fase 2.12, ao "dono único do movimento
 >   por frame" e às seções de config em PT-BR), sem cópia de arquivo.
+> - **Fase 2.16b (v0.4.4)** — os trabalhos de **cultivar**, **cozinhar/preparar bebidas** e **operar
+>   fundições** seguem a lógica de `src/Companions/Jobs/FarmController.cs` (fases colher/plantar/
+>   guardar, `BuildSeedMapping` — varredura de `ZNetScene.instance.m_prefabs` por `Plant` + `Piece` e
+>   o custo da peça como semente, `FindRipePickable`, `FindPlantPositionInZone` com espaçamento por
+>   `m_growRadius`, checagem de `Heightmap.IsCultivated`/bioma/`PrivateArea.CheckAccess`, `PlantSeed`
+>   com `TerrainModifier.SetTriggerOnPlaced` + `Instantiate`, `StoreOutput`), de
+>   `src/Companions/Jobs/FarmZone.cs`/`FarmZoneSerializer.cs` (zona de fazenda definida pelo jogador e
+>   serializada), de `src/Companions/Jobs/MHR_SeedRules.cs` (famílias semente/cultura, o mínimo de
+>   sementes mantido no inventário — `Keep`/`WantsStore` — e o plantio em grupos), de
+>   `src/Companions/Jobs/CookController.cs` (`Scan` por `Piece.GetAllPiecesInRadius`, prioridade
+>   "retirar o pronto antes de tudo", `AddToCooker` com `RPC_AddItem`/`RPC_AddFuel`,
+>   `UpdateCooking` com `RPC_RemoveDoneItem` + `PickUpDrops`, `UpdateFermenting` com
+>   `RPC_AddItem(hash)`/`RPC_Tap`, `UpdateCrafting` para o caldeirão), de
+>   `src/Companions/Jobs/CookFuel.cs` (`FuelTarget`, `HeatSources`, `Stoke` — manter as fogueiras em
+>   uma fração do combustível máximo) e de `src/Companions/Jobs/SmeltController.cs`
+>   (`ScanNearbySmelters`, separação carvoeira × forno por `m_maxFuel == 0`,
+>   `TryPlanRefill`/`TryPlanFuelRefill`, inserção de uma unidade por vez com `RPC_AddOre`/`RPC_AddFuel`
+>   conferindo o ZDO, `CountGroundDropsNearSmelter`), além da UI de `src/Companions/UI/`
+>   (`FarmZoneCropPicker`/`FarmZonePlacer`), que ficou **fora** desta entrega. A implementação no
+>   ModIA é própria (`FarmJob`/`FarmZone`/`FarmCatalog`/`CookJob`/`SmeltJob`/`JobStations`, adaptados
+>   à máquina de estados do `CompanionJob`, ao "dono único do movimento por frame"
+>   (`MovementOwner.Farm`/`Cook`/`Smelt`), ao depósito da Fase 2.14 e às seções de config em PT-BR),
+>   sem cópia de arquivo.

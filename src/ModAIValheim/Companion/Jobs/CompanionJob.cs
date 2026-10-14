@@ -3,8 +3,8 @@ using UnityEngine;
 namespace ModAIValheim.Companion.Jobs
 {
     /// <summary>
-    /// Tipo de <b>trabalho</b> (Fase 2.16). Hoje: caçar e pescar; cultivar/cozinhar/fundir entram nas
-    /// próximas fases do plano (2.16b+), cada um com o seu controlador na mesma fila.
+    /// Tipo de <b>trabalho</b> (Fase 2.16). Caçar/pescar (2.16a) e cultivar/cozinhar/fundir (2.16b),
+    /// cada um com o seu controlador na mesma fila.
     /// </summary>
     internal enum JobKind
     {
@@ -16,6 +16,15 @@ namespace ModAIValheim.Companion.Jobs
 
         /// <summary>Pescar com vara numa margem próxima.</summary>
         Fish = 2,
+
+        /// <summary>Cultivar numa zona de fazenda (plantar, colher e guardar a colheita).</summary>
+        Farm = 3,
+
+        /// <summary>Cozinhar/bebidas (abastecer, esperar e retirar o que ficou pronto).</summary>
+        Cook = 4,
+
+        /// <summary>Operar fundições (abastecer minério/combustível e retirar o produto).</summary>
+        Smelt = 5,
     }
 
     /// <summary>
@@ -70,8 +79,14 @@ namespace ModAIValheim.Companion.Jobs
         /// <summary>Janela (s) em que a mesma chave de log não se repete.</summary>
         private const float LogRepeatSeconds = 10f;
 
+        /// <summary>Intervalo (s) mínimo entre dois pedidos de viagem ao baú por mochila cheia.</summary>
+        private const float PackFullRetrySeconds = 5f;
+
         private static string s_lastLogKey;
         private static float s_lastLogAt = -999f;
+
+        /// <summary>Espera até o próximo pedido de viagem ao baú (evita varrer baús todo tick).</summary>
+        private float _packFullTimer;
 
         /// <summary>Tipo do trabalho (usado pelos comandos e pelo HUD).</summary>
         internal abstract JobKind Kind { get; }
@@ -88,7 +103,10 @@ namespace ModAIValheim.Companion.Jobs
         /// <summary>Quantidade alvo (0 = sem limite: trabalha até acabar o que há no raio).</summary>
         internal int Amount { get; private set; }
 
-        /// <summary>Quanto já foi feito (abates / peixes na mão).</summary>
+        /// <summary>
+        /// Quanto já foi feito: abates, peixes na mão, culturas colhidas/plantadas, pratos feitos,
+        /// produtos catados da fornalha… (o que cada trabalho conta é decisão dele).
+        /// </summary>
         internal int Progress { get; private set; }
 
         /// <summary>Segundos desde o começo (congelado enquanto o trabalho espera a vez).</summary>
@@ -118,6 +136,7 @@ namespace ModAIValheim.Companion.Jobs
             Elapsed = 0f;
             StopReason = null;
             Status = "começando";
+            _packFullTimer = 0f;
 
             if (!OnStart(companion, out error))
             {
@@ -184,6 +203,33 @@ namespace ModAIValheim.Companion.Jobs
             Progress++;
         }
 
+        /// <summary>Conta <paramref name="count"/> itens concluídos de uma vez (uma colheita inteira).</summary>
+        protected void AddProgress(int count)
+        {
+            if (count > 0)
+            {
+                Progress += count;
+            }
+        }
+
+        /// <summary>
+        /// A mochila não aceita mais nada: pede a viagem ao baú da Fase 2.14 (que assume o
+        /// movimento e pausa o trabalho) ou avisa no HUD, <b>no máximo a cada
+        /// <see cref="PackFullRetrySeconds"/></b> — sem esse limite um trabalho de estação varreria
+        /// baús a cada tick de coleta.
+        /// </summary>
+        protected void ReportPackFull(CompanionAI companion, float dt, ItemDrop.ItemData item = null)
+        {
+            _packFullTimer -= dt;
+            if (_packFullTimer > 0f)
+            {
+                return;
+            }
+
+            _packFullTimer = PackFullRetrySeconds;
+            companion.JobReportPackFull(item);
+        }
+
         /// <summary>Atualiza a linha de estado mostrada no HUD/console.</summary>
         protected void SetStatus(string status)
         {
@@ -224,6 +270,16 @@ namespace ModAIValheim.Companion.Jobs
         internal static void ShowHud(string text)
         {
             CompanionHarvest.ShowMessage(text, MessageHud.MessageType.TopLeft);
+        }
+
+        /// <summary>
+        /// Linha de progresso no HUD, no mesmo formato do caçar/pescar:
+        /// <c>Rótulo: item (feitos/total)</c> — o <c>/total</c> só aparece quando há meta.
+        /// </summary>
+        protected void ShowProgress(string label, string item)
+        {
+            string limit = Amount > 0 ? $"/{Amount}" : string.Empty;
+            ShowHud($"{label}: {item} ({Progress}{limit})");
         }
 
         /// <summary>Solta o estado estático de log (unload do plugin / fim do mundo).</summary>

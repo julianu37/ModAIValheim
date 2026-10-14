@@ -129,6 +129,49 @@ namespace ModAIValheim.Companion
         /// <summary>Instance IDs dos baús já avaliados na varredura atual (evita duplicar).</summary>
         private static readonly HashSet<int> s_seen = new HashSet<int>();
 
+        /// <summary>
+        /// Prefabs que o depósito deve <b>deixar no inventário</b> (Fase 2.16b): o trabalho de
+        /// cultivar marca aqui as <b>sementes</b>, com quantas unidades manter — são o "combustível"
+        /// do plantio e, se fossem todas para o baú junto da colheita, ele não teria o que plantar
+        /// na volta. Fica vazio para todo o resto do mod (comportamento inalterado).
+        /// </summary>
+        private static readonly Dictionary<string, int> s_keepCounts = new Dictionary<string, int>();
+
+        /// <summary>Marca os prefabs (e quantas unidades de cada) que o depósito deve preservar.</summary>
+        internal static void SetKeepCounts(Dictionary<string, int> counts)
+        {
+            s_keepCounts.Clear();
+            if (counts == null)
+            {
+                return;
+            }
+
+            foreach (KeyValuePair<string, int> pair in counts)
+            {
+                if (!string.IsNullOrEmpty(pair.Key) && pair.Value > 0)
+                {
+                    s_keepCounts[pair.Key] = pair.Value;
+                }
+            }
+        }
+
+        /// <summary>Solta a proteção (fim do trabalho de cultivar).</summary>
+        internal static void ClearKeepCounts()
+        {
+            s_keepCounts.Clear();
+        }
+
+        /// <summary>Quantas unidades deste prefab o depósito deve deixar no inventário (0 = nenhuma).</summary>
+        internal static int KeepCount(string prefabName)
+        {
+            if (string.IsNullOrEmpty(prefabName))
+            {
+                return 0;
+            }
+
+            return s_keepCounts.TryGetValue(prefabName, out int keep) ? keep : 0;
+        }
+
         /// <summary>Existe uma viagem ao baú em andamento?</summary>
         internal static bool TripActive => _kind != ChestTripKind.None;
 
@@ -157,6 +200,25 @@ namespace ModAIValheim.Companion
             _avoidUntil = -999f;
             s_pieces.Clear();
             s_seen.Clear();
+            s_keepCounts.Clear();
+        }
+
+        /// <summary>Quantas unidades deste prefab o inventário tem (para o "manter N" do depósito).</summary>
+        private static int CountPrefab(Inventory inventory, string prefabName)
+        {
+            int count = 0;
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (item != null && item.m_dropPrefab != null &&
+                    Utils.GetPrefabName(item.m_dropPrefab.name) == prefabName)
+                {
+                    count += item.m_stack;
+                }
+            }
+
+            return count;
         }
 
         // ---------------------------------------------------------------------
@@ -377,6 +439,46 @@ namespace ModAIValheim.Companion
                 ItemDrop.ItemData item = items[i];
                 if (!CompanionInventory.IsStorableResource(item))
                 {
+                    continue;
+                }
+
+                // Fase 2.16b: o trabalho de cultivar preserva um mínimo de sementes (o que ele
+                // planta) — só o excedente vai para o baú.
+                int keep = item.m_dropPrefab != null
+                    ? KeepCount(Utils.GetPrefabName(item.m_dropPrefab.name))
+                    : 0;
+                if (keep > 0)
+                {
+                    string keepPrefab = Utils.GetPrefabName(item.m_dropPrefab.name);
+                    int excess = CountPrefab(inventory, keepPrefab) - keep;
+                    if (excess <= 0)
+                    {
+                        continue;
+                    }
+
+                    int move = Mathf.Min(excess, item.m_stack);
+                    if (move <= 0 || !chestInventory.CanAddItem(item, move))
+                    {
+                        continue;
+                    }
+
+                    ItemDrop.ItemData part = item.Clone();
+                    part.m_stack = move;
+                    if (!chestInventory.AddItem(part))
+                    {
+                        continue;
+                    }
+
+                    if (move >= item.m_stack)
+                    {
+                        inventory.RemoveItem(item);
+                    }
+                    else
+                    {
+                        inventory.RemoveItem(item, move);
+                    }
+
+                    moved++;
                     continue;
                 }
 

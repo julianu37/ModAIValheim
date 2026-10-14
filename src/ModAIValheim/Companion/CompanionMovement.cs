@@ -48,6 +48,24 @@ namespace ModAIValheim.Companion
         /// lá (arremessar/puxar não dirigem movimento, mas o frame continua sendo dele).
         /// </summary>
         Fish,
+
+        /// <summary>
+        /// O <b>trabalho de cultivar</b> (Fase 2.16b): andar até o canteiro (colher) ou até o ponto
+        /// livre da zona de fazenda (plantar).
+        /// </summary>
+        Farm,
+
+        /// <summary>
+        /// O <b>trabalho de cozinhar</b> (Fase 2.16b): andar até a estação (fogueira, espeto,
+        /// caldeirão, barril) para abastecer, esperar o preparo e retirar o prato/bebida.
+        /// </summary>
+        Cook,
+
+        /// <summary>
+        /// O <b>trabalho de fundir</b> (Fase 2.16b): andar até o forno/fornalha/carvoeira para
+        /// abastecer e retirar o produto.
+        /// </summary>
+        Smelt,
     }
 
     /// <summary>

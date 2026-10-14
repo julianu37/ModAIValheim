@@ -52,6 +52,11 @@ namespace ModAIValheim
     /// primeiros trabalhos: CAÇAR (abate a fauna do raio e cata o que caiu) e PESCAR (vara e isca do
     /// inventário, arremesso no peixe, fisgada e puxão com o flutuador do jogo). Console:
     /// `modia_job hunt|fish|stop`.
+    /// Fase 2.16b: os outros três trabalhos — CULTIVAR (numa zona de fazenda definida pelo jogador:
+    /// planta sementes, colhe o que ficou pronto e leva a colheita ao baú), COZINHAR/PREPARAR
+    /// BEBIDAS (abastece e retira espeto/forno/barril, cozinha no caldeirão) e OPERAR FUNDIÇÕES
+    /// (abastece minério/combustível e retira barra/carvão). Console:
+    /// `modia_job farm|cook|smelt` + `modia_farm set|clear`.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -59,7 +64,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.3";
+        public const string PluginVersion = "0.4.4";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -163,6 +168,25 @@ namespace ModAIValheim
         private ConfigEntry<bool> _provideBait;
         private ConfigEntry<string> _baitPrefab;
         private ConfigEntry<int> _baitAmount;
+
+        // Trabalhos (2.16b): cultivar, cozinhar e fundir.
+        private ConfigEntry<string> _farmZone;
+        private ConfigEntry<float> _farmRadius;
+        private ConfigEntry<bool> _farmPlant;
+        private ConfigEntry<bool> _farmHarvest;
+        private ConfigEntry<float> _farmSpacing;
+        private ConfigEntry<int> _farmStoreEvery;
+        private ConfigEntry<int> _farmKeepSeeds;
+        private ConfigEntry<float> _cookRadius;
+        private ConfigEntry<bool> _cookFuel;
+        private ConfigEntry<float> _cookFuelLevel;
+        private ConfigEntry<bool> _cookTakeDone;
+        private ConfigEntry<bool> _cookCauldron;
+        private ConfigEntry<float> _cookWaitSeconds;
+        private ConfigEntry<float> _smeltRadius;
+        private ConfigEntry<bool> _smeltFuel;
+        private ConfigEntry<bool> _smeltTakeOutput;
+        private ConfigEntry<int> _smeltMaxInsert;
 
         // Menu do mod (Fase 2.6b).
         private ConfigEntry<KeyCode> _menuKey;
@@ -780,6 +804,134 @@ namespace ModAIValheim
                 20,
                 "Quantas iscas o mod cria de uma vez quando ele fica sem (1 a 200).");
 
+            // -----------------------------------------------------------------
+            // Trabalhos 2.16b: cultivar, cozinhar e fundir
+            // -----------------------------------------------------------------
+
+            _farmZone = Config.Bind(
+                "Jobs",
+                "FarmZona",
+                string.Empty,
+                "ZONA DE FAZENDA do trabalho de cultivar (centro + raio). NAO edite na mao: quem " +
+                "grava aqui e o comando modia_farm set (no ponto onde voce esta) e apaga o " +
+                "modia_farm clear. Formato: x;y;z;raio;cultura (cultura vazia = automatica).");
+
+            _farmRadius = Config.Bind(
+                "Jobs",
+                "FarmRaio",
+                8f,
+                "Raio padrao em metros da zona de fazenda quando o modia_farm set nao diz um " +
+                "(2 a 60). E a area onde ele pode plantar e colher.");
+
+            _farmPlant = Config.Bind(
+                "Jobs",
+                "FarmPlantar",
+                true,
+                "O trabalho de cultivar PLANTA sementes do inventario nas vagas livres do terreno " +
+                "cultivado. Desligado, ele so colhe o que ja estiver pronto.");
+
+            _farmHarvest = Config.Bind(
+                "Jobs",
+                "FarmColher",
+                true,
+                "O trabalho de cultivar COLHE as plantas prontas da zona. Desligado, ele so planta.");
+
+            _farmSpacing = Config.Bind(
+                "Jobs",
+                "FarmEspacamento",
+                2f,
+                "Espacamento em metros entre as plantas (0.5 a 10). O espacamento real e o maior " +
+                "entre isto e o raio de crescimento da cultura: apertado demais a planta nasce " +
+                "sem espaco (NoSpace) e nunca da fruto.");
+
+            _farmStoreEvery = Config.Bind(
+                "Jobs",
+                "FarmDepositarCada",
+                20,
+                "A cada quantos itens colhidos o companheiro leva a colheita ao bau mais proximo " +
+                "(reaproveitando o deposito da Fase 2.14; ele volta a cultivar depois). " +
+                "0 = so quando a carga/inventario encher.");
+
+            _farmKeepSeeds = Config.Bind(
+                "Jobs",
+                "FarmManterSementes",
+                20,
+                "Quantas unidades de CADA semente (e de cada vegetal que serve para produzir " +
+                "semente) ele mantem no inventario ao levar a colheita ao bau (0 a 200). Sem isso, " +
+                "a primeira viagem ao bau levaria justamente o que ele precisa para replantar.");
+
+            _cookRadius = Config.Bind(
+                "Jobs",
+                "CozinhaRaio",
+                20f,
+                "Raio em metros (a partir do companheiro) em que o trabalho de cozinhar procura as " +
+                "estacoes: fogueira/espeto/forno de cozinha, barril de fermentacao e caldeirao " +
+                "(3 a 100).");
+
+            _cookFuel = Config.Bind(
+                "Jobs",
+                "CozinhaCombustivel",
+                true,
+                "O cozinheiro reabastece o combustivel das estacoes (fogueira embaixo do espeto, " +
+                "forno de cozinha) com o combustivel do proprio inventario. Sem isso ele so poe " +
+                "comida e tira o que ficou pronto.");
+
+            _cookFuelLevel = Config.Bind(
+                "Jobs",
+                "CozinhaNivelCombustivel",
+                0.5f,
+                "Fracao (0.1 a 1) do combustivel maximo que ele mantem nas estacoes: nao precisa " +
+                "encher ate o teto, so o suficiente para cozinhar (padrao 0.5 = metade).");
+
+            _cookTakeDone = Config.Bind(
+                "Jobs",
+                "CozinhaRetirarPronto",
+                true,
+                "O cozinheiro retira o prato/bebida pronto da estacao (antes de queimar) e cata o " +
+                "que ela largou no chao.");
+
+            _cookCauldron = Config.Bind(
+                "Jobs",
+                "CozinhaCaldeirao",
+                true,
+                "Cozinhar receitas no caldeirao/mesa de preparo (estacoes que exigem fogo): ele " +
+                "consome os ingredientes do inventario e entrega o prato, com o fogo aceso e o " +
+                "nivel da estacao conferidos. Desligado, ele so opera espeto/forno/barril.");
+
+            _cookWaitSeconds = Config.Bind(
+                "Jobs",
+                "CozinhaEsperaPreparo",
+                240f,
+                "Tempo maximo em segundos esperando o preparo de uma estacao antes de encerrar o " +
+                "trabalho (10 a 1800). E a rede de seguranca para um espeto sem fogo.");
+
+            _smeltRadius = Config.Bind(
+                "Jobs",
+                "FundicaoRaio",
+                20f,
+                "Raio em metros (a partir do companheiro) em que o trabalho de fundir procura os " +
+                "fornos: forno, alto-forno e carvoeira (3 a 100).");
+
+            _smeltFuel = Config.Bind(
+                "Jobs",
+                "FundicaoCombustivel",
+                true,
+                "O fundidor abastece o combustivel dos fornos (carvao) com o que tiver no " +
+                "inventario. A carvoeira nao tem combustivel e nao e afetada.");
+
+            _smeltTakeOutput = Config.Bind(
+                "Jobs",
+                "FundicaoRetirarProduto",
+                true,
+                "O fundidor cata o produto (barra/carvao) que a fornalha larga no chao no ponto " +
+                "de saida.");
+
+            _smeltMaxInsert = Config.Bind(
+                "Jobs",
+                "FundicaoPorViagem",
+                30,
+                "Quantas unidades ele poe (minerio ou combustivel) por ida ate a fornalha (1 a 200).");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -900,7 +1052,24 @@ namespace ModAIValheim
                 _rodPrefab,
                 _provideBait,
                 _baitPrefab,
-                _baitAmount);
+                _baitAmount,
+                _farmZone,
+                _farmRadius,
+                _farmPlant,
+                _farmHarvest,
+                _farmSpacing,
+                _farmStoreEvery,
+                _farmKeepSeeds,
+                _cookRadius,
+                _cookFuel,
+                _cookFuelLevel,
+                _cookTakeDone,
+                _cookCauldron,
+                _cookWaitSeconds,
+                _smeltRadius,
+                _smeltFuel,
+                _smeltTakeOutput,
+                _smeltMaxInsert);
 
             CompanionCommands.Register();
 

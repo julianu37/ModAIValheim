@@ -191,7 +191,7 @@ namespace ModAIValheim.Companion.Jobs
             CompanionJob job = _current;
             if (job == null || !job.IsActive)
             {
-                return "nenhum (use modia_job hunt|fish)";
+                return "nenhum (use modia_job hunt|fish|farm|cook|smelt)";
             }
 
             string limit = job.Amount > 0 ? $"{job.Progress}/{job.Amount}" : $"{job.Progress}";

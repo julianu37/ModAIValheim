@@ -3,6 +3,69 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.4] — 2026-10-14
+
+### Adicionado
+- **TRABALHOS (JOBS) — CULTIVAR, COZINHAR/PREPARAR BEBIDAS e OPERAR FUNDIÇÕES** (Fase 2.16b). Os
+  outros três trabalhos entram na mesma infraestrutura da 2.16a (fila única, prioridade
+  `combate > coleta > depósito > loot > TRABALHO > follow`, log deduplicado, HUD e `modia_stats`).
+  - **CULTIVAR (`Companion/Jobs/FarmJob.cs` + `FarmZone.cs` + `FarmCatalog.cs`).** O jogador define
+    uma **zona de fazenda** (centro + raio) com `modia_farm set [raio]` — gravada em
+    `Jobs/FarmZona` no `.cfg` (sobrevive a reinícios); `modia_farm clear` apaga e `modia_farm info`
+    mostra a zona e **quais culturas** ele sabe plantar. Dentro da zona ele, em ordem: **colhe** as
+    plantas prontas (`Pickable.Interact` e depois cata os frutos do chão), **planta** sementes do
+    inventário (consome uma unidade e instancia o prefab com
+    `TerrainModifier.SetTriggerOnPlaced` + `Instantiate`, a mesma sequência do `Player.PlacePiece`) e
+    **guarda** a colheita no baú (o depósito da Fase 2.14) a cada `Jobs/FarmDepositarCada` itens,
+    preservando `Jobs/FarmManterSementes` de cada semente (senão a viagem ao baú levaria justamente
+    o que ele precisa para replantar). Nada pronto e nada a plantar, mas com planta crescendo: ele
+    **espera no canteiro** (`esperando as plantas crescerem`) em vez de encerrar. As vagas exigem
+    **terreno cultivado** (`Heightmap.IsCultivated`), **bioma** da cultura, **espaço livre**
+    (espaçamento = o maior entre `Jobs/FarmEspacamento` e o raio de crescimento) e **acesso**
+    (respeita área privada). O catálogo de plantáveis/colhíveis é lido dos **prefabs do jogo**
+    (`Plant` + `Piece.m_resources[0]` = semente; `m_grownPrefabs` = frutos) e só inclui culturas de
+    terreno cultivado (mudas de árvore ficam fora). **Fora do núcleo:** a UI de zona/cultura
+    (picker/placer da referência), a rotação em fileiras e buscar/guardar sementes em baús.
+  - **COZINHAR / PREPARAR BEBIDAS (`Companion/Jobs/CookJob.cs`).** Opera as estações num raio
+    (`Jobs/CozinhaRaio`, 20 m): **espeto/forno de cozinha** (`CookingStation`), **barril de
+    fermentação** (`Fermenter`) e **caldeirão/mesa de preparo** (`CraftingStation` que exige fogo).
+    **Prioridade:** retirar o que **ficou pronto (ou está queimando)** → **tornear o barril pronto** →
+    **cozinhar no caldeirão** → **reabastecer o fogo** (a própria estação ou a **fogueira** embaixo
+    dela, mantida em `Jobs/CozinhaNivelCombustivel` do máximo) → **pôr comida** no espeto → **encher
+    o barril** vazio. Combustível e comida saem do **inventário** do companheiro. Ele **espera o
+    preparo** por perto (até `Jobs/CozinhaEsperaPreparo`) e **retira** o prato/bebida, catando o que
+    o jogo larga no chão (a garrafa do barril sai 1,5 s depois da torneira — o trabalho sabe esperar).
+    **Como fala com as estações:** pelos **RPC do ZNetView** (`RPC_AddItem`, `RPC_AddFuel`,
+    `RPC_RemoveDoneItem`, `RPC_Tap`), com o estado lido do ZDO (`slotN`/`slotstatusN`,
+    `Content`/`StartTime`) — o `Interact` do jogo mexe em perícia/estatística do **jogador** e na GUI
+    de craft. **Fora do núcleo:** a lista curada de receitas (foco por chefe) da referência,
+    colmeias/manutenção da base (2.17) e buscar insumos em baús.
+  - **OPERAR FUNDIÇÕES (`Companion/Jobs/SmeltJob.cs`).** Opera **forno**, **alto-forno** e
+    **carvoeira** (`Smelter` com `m_maxFuel == 0`) num raio (`Jobs/FundicaoRaio`, 20 m).
+    **Prioridade:** **catar o produto** (barra/carvão) que a fornalha larga no ponto de saída →
+    **combustível** → **minério** (escolhido pelas conversões do próprio forno, `m_conversion`, então
+    o mesmo código serve para os três). Insere **uma unidade por vez** com `RPC_AddOre`/`RPC_AddFuel`
+    e conferindo o ZDO antes de cada uma (fila cheia/combustível no teto: para), até
+    `Jobs/FundicaoPorViagem` por ida. **Fora do núcleo:** buscar insumos em baús, a ordenação entre
+    vários fornos e as pilhas de recurso no chão.
+  - **Comum aos três:** um **dono novo do movimento por frame** cada
+    (`MovementOwner.Farm`/`Cook`/`Smelt`), varredura com intervalo e buffers reaproveitados (nada por
+    frame), log deduplicado, HUD e a linha do trabalho no `modia_stats`. O depósito da Fase 2.14
+    ganhou um "manter N" (`CompanionDeposit.SetKeepCounts`) usado só pelo trabalho de cultivar.
+
+### Alterado
+- **Console:** `modia_job` passou a aceitar `farm`, `cook` e `smelt` (além de `hunt`, `fish` e
+  `stop`; aceita os apelidos em PT: `fazenda`/`cultivar`, `cozinhar`/`bebida`, `fundir`/`fundicao`) e
+  o `modia_farm <set|clear|info> [raio]` é novo.
+- **Config `[Jobs]`:** novas chaves — `FarmZona` (escrita pelo comando), `FarmRaio`, `FarmPlantar`,
+  `FarmColher`, `FarmEspacamento`, `FarmDepositarCada`, `FarmManterSementes`, `CozinhaRaio`,
+  `CozinhaCombustivel`, `CozinhaNivelCombustivel`, `CozinhaRetirarPronto`, `CozinhaCaldeirao`,
+  `CozinhaEsperaPreparo`, `FundicaoRaio`, `FundicaoCombustivel`, `FundicaoRetirarProduto`,
+  `FundicaoPorViagem`.
+- **`CompanionAI`:** nova superfície para os trabalhos de estação — `JobPickup` (pegar item do chão
+  pelo `Humanoid.Pickup`, com pedido de posse), `JobReportPackFull` (pedir a viagem ao baú quando a
+  mochila enche) e `JobIsPackFull`.
+
 ## [0.4.3] — 2026-10-14
 
 ### Adicionado

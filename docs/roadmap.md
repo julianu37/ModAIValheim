@@ -44,7 +44,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.14 | **Peso, depósito em baú e tool keeper**: teto de peso, ao encher leva a carga ao baú e retoma (ou pausa), ferramenta emprestada/devolvida do baú | ✅ |
 | **2.16** | **Trabalhos (jobs)**: a mesma interface de "aponte para o trabalho" | 🔄 |
 | 2.16a | Infraestrutura de jobs (`CompanionJobQueue`: um trabalho por vez + prioridade explícita) + **caçar** e **pescar** (`modia_job hunt\|fish\|stop`) | ✅ |
-| 2.16b | Demais trabalhos: **cultivar** (zonas de fazenda), **cozinhar/bebidas** e **fundições**; caçar **pássaros** (arco) e UI do trabalho (menu/hover) | ⏳ |
+| 2.16b | **Cultivar** (zona de fazenda: plantar/colher/guardar), **cozinhar/bebidas** (espeto/forno/barril/caldeirão) e **fundições** (forno/alto-forno/carvoeira) — `modia_job farm\|cook\|smelt` + `modia_farm set\|clear\|info` | ✅ (v0.4.4) |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -192,3 +192,33 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
     `DistanciaArremesso`, `EsperaFisgada`, `StaminaMinimaArremesso`, `FornecerVara`/`VaraPrefab`,
     `FornecerIsca`/`IscaPrefab`/`IscaQuantidade`. Console: `modia_job` + a linha do trabalho no
     `modia_stats`; HUD (canto superior esquerdo) com início, cada abate/peixe e o encerramento.
+- **Fase 2.16b (0.4.4)** — os outros três trabalhos, sobre a mesma infraestrutura.
+  - **CULTIVAR (`FarmJob.cs` + `FarmZone.cs` + `FarmCatalog.cs`):** o jogador define uma **zona de
+    fazenda** (centro + raio) com `modia_farm set [raio]` — gravada em `Jobs/FarmZona`, sobrevive a
+    reinícios; `modia_farm clear` apaga e `modia_farm info` mostra a zona e as culturas plantáveis.
+    Dentro da zona ele **colhe** a planta pronta (`Pickable.Interact` + catar os frutos do chão),
+    **planta** sementes do inventário (consome uma unidade e instancia o prefab com
+    `TerrainModifier.SetTriggerOnPlaced`, como o `Player.PlacePiece`) e **guarda** a colheita no baú
+    (o depósito da 2.14) a cada `FarmDepositarCada` itens, preservando `FarmManterSementes` de cada
+    semente. As vagas exigem terreno **cultivado** (`Heightmap.IsCultivated`), bioma compatível,
+    espaço livre (espaçamento ≥ raio de crescimento) e acesso em área privada. O que é plantável e o
+    que é colhível vem dos **prefabs do jogo** (`Plant` + `Piece.m_resources[0]` = semente;
+    `m_grownPrefabs` = frutos) — só culturas de terreno cultivado, então mudas de árvore ficam fora.
+    Fora do núcleo: a UI de zona/cultura (picker/placer), a rotação em fileiras e buscar sementes em baús.
+  - **COZINHAR / PREPARAR BEBIDAS (`CookJob.cs`):** opera espeto/forno de cozinha (`CookingStation`),
+    barril (`Fermenter`) e caldeirão/mesa de preparo (`CraftingStation` com fogo) num raio
+    (`CozinhaRaio`). Prioridade: **retirar o pronto (ou queimando)** → **tornear o barril** →
+    **cozinhar no caldeirão** → **reabastecer o fogo** (a estação ou a fogueira embaixo dela, mantida
+    em `CozinhaNivelCombustivel` do máximo) → **pôr comida** → **encher o barril**. Insumos vêm do
+    inventário. Tudo por **RPC do ZNetView** (`RPC_AddItem`/`RPC_AddFuel`/`RPC_RemoveDoneItem`/
+    `RPC_Tap`) e estado lido do ZDO (`slotN`/`slotstatusN`, `Content`/`StartTime`) — o `Interact` do
+    jogo é do jogador (perícia + GUI). Fora do núcleo: a lista curada de receitas, colmeias (2.17) e
+    buscar insumos em baús.
+  - **FUNDIÇÕES (`SmeltJob.cs`):** forno/alto-forno e **carvoeira** (`Smelter` com `m_maxFuel == 0`).
+    Prioridade: **catar o produto** do chão (o jogo larga no ponto de saída) → **combustível** →
+    **minério** (escolhido pelas conversões do próprio forno, `m_conversion`), uma unidade por vez com
+    `RPC_AddOre`/`RPC_AddFuel` e conferindo o ZDO antes (`FundicaoPorViagem` por ida). Fora do núcleo:
+    buscar insumos em baús, ordenação entre vários fornos e pilhas de recurso.
+  - **Comum aos três:** um **dono novo do movimento por frame** cada (`MovementOwner.Farm/Cook/Smelt`),
+    varredura com intervalo e buffers reaproveitados, log deduplicado, HUD e `modia_stats` iguais aos
+    outros trabalhos. Console: `modia_job farm|cook|smelt` e `modia_farm`.
