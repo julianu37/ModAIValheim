@@ -25,6 +25,12 @@ namespace ModAIValheim.Companion.Jobs
 
         /// <summary>Operar fundições (abastecer minério/combustível e retirar o produto).</summary>
         Smelt = 5,
+
+        /// <summary>
+        /// Cuidar da base (Fase 2.17): reparar construções, abastecer fogueiras, esvaziar colmeias e
+        /// ordenar os baús dentro da casa/base.
+        /// </summary>
+        Upkeep = 6,
     }
 
     /// <summary>

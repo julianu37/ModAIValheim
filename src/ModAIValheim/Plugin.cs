@@ -57,6 +57,15 @@ namespace ModAIValheim
     /// BEBIDAS (abastece e retira espeto/forno/barril, cozinha no caldeirão) e OPERAR FUNDIÇÕES
     /// (abastece minério/combustível e retira barra/carvão). Console:
     /// `modia_job farm|cook|smelt` + `modia_farm set|clear`.
+    /// Fase 2.17: BASE E CASA — o jogador define uma CASA (centro + raio) com
+    /// `modia_home set|clear|info` (gravada em `Casa/HomeZona`), o depósito passa a preferir o baú
+    /// de dentro da casa e o companheiro ganha o trabalho de CUIDAR DA BASE
+    /// (`modia_job upkeep`): repara construções danificadas com o martelo na mão (o caminho do
+    /// `Player.Repair`), reabastece fogueiras/tochas/braseiros com o combustível do inventário,
+    /// esvazia colmeias e ordena os baús (leva cada item repetido para o baú que já tem mais dele e
+    /// junta pilhas parciais). O MODO CONTÍNUO (`modia_basecare on|off`, `Base/Continuo`) faz ele
+    /// retomar o cuidado da casa sozinho quando fica ocioso, e `Casa/VoltarSePerdido` o traz de
+    /// volta para a base quando ele fica longe demais do jogador.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -64,7 +73,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.4";
+        public const string PluginVersion = "0.4.5";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -187,6 +196,29 @@ namespace ModAIValheim
         private ConfigEntry<bool> _smeltFuel;
         private ConfigEntry<bool> _smeltTakeOutput;
         private ConfigEntry<int> _smeltMaxInsert;
+
+        // Casa e cuidado da base (Fase 2.17).
+        private ConfigEntry<string> _homeZone;
+        private ConfigEntry<float> _homeRadius;
+        private ConfigEntry<bool> _preferChestInHome;
+        private ConfigEntry<bool> _returnIfLost;
+        private ConfigEntry<float> _lostDistance;
+        private ConfigEntry<bool> _baseCareEnabled;
+        private ConfigEntry<bool> _baseCareContinuous;
+        private ConfigEntry<float> _baseCareRadius;
+        private ConfigEntry<float> _baseCareScanInterval;
+        private ConfigEntry<bool> _baseCareRepair;
+        private ConfigEntry<float> _baseCareRepairBelow;
+        private ConfigEntry<bool> _baseCareProvideHammer;
+        private ConfigEntry<string> _baseCareHammerPrefab;
+        private ConfigEntry<bool> _baseCareRefuel;
+        private ConfigEntry<float> _baseCareFuelLevel;
+        private ConfigEntry<bool> _baseCareHives;
+        private ConfigEntry<float> _baseCareHoneyMin;
+        private ConfigEntry<bool> _baseCareSortChests;
+        private ConfigEntry<string> _baseCareSortItems;
+        private ConfigEntry<int> _baseCareSortPerTrip;
+        private ConfigEntry<bool> _baseCareMergeStacks;
 
         // Menu do mod (Fase 2.6b).
         private ConfigEntry<KeyCode> _menuKey;
@@ -932,6 +964,180 @@ namespace ModAIValheim
                 30,
                 "Quantas unidades ele poe (minerio ou combustivel) por ida ate a fornalha (1 a 200).");
 
+            // -----------------------------------------------------------------
+            // Fase 2.17: a casa e o cuidado da base
+            // -----------------------------------------------------------------
+
+            _homeZone = Config.Bind(
+                "Casa",
+                "HomeZona",
+                string.Empty,
+                "ZONA DA CASA do companheiro (centro + raio). NAO edite na mao: quem grava aqui e o " +
+                "comando modia_home set (no ponto onde voce esta) e apaga o modia_home clear. " +
+                "Formato: x;y;z;raio. Com a casa definida, o deposito prefere o bau de dentro dela, " +
+                "o trabalho de cuidar da base trabalha nesse raio e ele sabe voltar para casa.");
+
+            _homeRadius = Config.Bind(
+                "Casa",
+                "HomeRaio",
+                20f,
+                "Raio padrao em metros da casa quando o modia_home set nao diz um (4 a 120). E a area " +
+                "que o companheiro considera a base: onde ele deposita, cuida e volta.");
+
+            _preferChestInHome = Config.Bind(
+                "Casa",
+                "PreferirBauDaCasa",
+                true,
+                "Se true (padrao), ao depositar a carga o companheiro prefere um bau DENTRO da casa: " +
+                "um bau da casa leva um desconto de distancia igual ao raio dela, entao ele atravessa " +
+                "a base para depositar em casa em vez de usar um bau qualquer do lado de fora. " +
+                "Desligado, vale so a distancia (comportamento da 2.14).");
+
+            _returnIfLost = Config.Bind(
+                "Casa",
+                "VoltarSePerdido",
+                false,
+                "Se true, o companheiro VOLTA PARA CASA quando fica longe dela E longe do jogador " +
+                "(mais de DistanciaPerdido) e sem nada mais no comando: em vez de atravessar o mundo " +
+                "atras de voce (portal, morte longe, preso no terreno), ele volta para a base e " +
+                "espera. Precisa de uma casa definida (modia_home set). Padrao DESLIGADO: com false " +
+                "ele so segue voce, como antes.");
+
+            _lostDistance = Config.Bind(
+                "Casa",
+                "DistanciaPerdido",
+                80f,
+                "Distancia em metros do jogador a partir da qual o companheiro e considerado perdido " +
+                "e volta para casa (so vale com Casa/VoltarSePerdido = true). 20 a 500.");
+
+            _baseCareEnabled = Config.Bind(
+                "Base",
+                "Ligado",
+                true,
+                "Liga o CUIDADO DA BASE (Fase 2.17): reparar construcoes, abastecer fogueiras, " +
+                "esvaziar colmeias e ordenar baus. Ele NUNCA comeca sozinho: isto libera o comando " +
+                "modia_job upkeep (e o modo continuo, Base/Continuo). O cuidado da base e um trabalho, " +
+                "entao tambem precisa de Jobs/Ligado = true.");
+
+            _baseCareContinuous = Config.Bind(
+                "Base",
+                "Continuo",
+                false,
+                "Se true, o companheiro RETOMA o cuidado da casa sozinho sempre que fica ocioso (sem " +
+                "trabalho, coleta, deposito ou combate) - e o 'ele cuida da casa' da visao. Precisa " +
+                "de uma casa definida (modia_home set). Tambem ligavel/desligavel em jogo com " +
+                "modia_basecare on|off (a escolha do comando vale para a sessao). Padrao desligado: " +
+                "so o comando modia_job upkeep inicia o cuidado.");
+
+            _baseCareRadius = Config.Bind(
+                "Base",
+                "RaioBase",
+                30f,
+                "Raio em metros de trabalho quando NAO ha casa definida: a base passa a ser um " +
+                "circulo em volta do ponto onde o trabalho foi comecado (5 a 120). Com casa definida, " +
+                "vale o raio dela (Casa/HomeRaio).");
+
+            _baseCareScanInterval = Config.Bind(
+                "Base",
+                "IntervaloVarredura",
+                3f,
+                "Intervalo em segundos entre as varreduras da base (1 a 30). A varredura percorre as " +
+                "pecas do mundo, entao nunca roda por frame.");
+
+            _baseCareRepair = Config.Bind(
+                "Base",
+                "Reparar",
+                true,
+                "Se true (padrao), o companheiro REPARA as construcoes danificadas do jogador: pega o " +
+                "martelo de construcao, anda ate a peca e da o golpe de reparo pelo caminho do jogo " +
+                "(WearNTear.Repair - o mesmo do Player.Repair). Nao ha custo de material: o custo e " +
+                "stamina e a durabilidade do martelo. Como para o jogador, a estacao de craft da " +
+                "peca (ex.: bancada) tem de estar no alcance.");
+
+            _baseCareRepairBelow = Config.Bind(
+                "Base",
+                "RepararAbaixo",
+                0.9f,
+                "Fracao (0.1 a 1) da vida da peca abaixo da qual ele repara. 1 = repara qualquer " +
+                "arranhao (ele vive de martelo na mao); o padrao 0.9 deixa passar o desgaste leve " +
+                "de chuva.");
+
+            _baseCareProvideHammer = Config.Bind(
+                "Base",
+                "FornecerMartelo",
+                true,
+                "Se true (padrao), quando o companheiro NAO tiver martelo de construcao o mod cria um " +
+                "e coloca no inventario dele - sem martelo o jogo nao repara nada (nem para o " +
+                "jogador). E o mesmo caminho das ferramentas de coleta (Coleta/FornecerFerramentas).");
+
+            _baseCareHammerPrefab = Config.Bind(
+                "Base",
+                "MarteloPrefab",
+                CompanionBaseCareConfig.DefaultHammerPrefab,
+                "Prefab vanilla do martelo de construcao usado/fomecido (padrao Hammer).");
+
+            _baseCareRefuel = Config.Bind(
+                "Base",
+                "AbastecerFogueiras",
+                true,
+                "Se true (padrao), o companheiro reabastece fogueiras, tochas e braseiros com o " +
+                "combustivel do proprio inventario (madeira, carvao, resina...), uma unidade por vez " +
+                "como o jogador, ate a fracao de Base/FogueiraNivel do maximo. Sem combustivel no " +
+                "inventario ele nao busca em baus (fora do nucleo desta fase).");
+
+            _baseCareFuelLevel = Config.Bind(
+                "Base",
+                "FogueiraNivel",
+                0.5f,
+                "Fracao (0.1 a 1) do combustivel maximo que ele mantem nas fogueiras. Nao precisa " +
+                "encher ate o teto: o padrao 0.5 e o suficiente para a fogueira nao apagar.");
+
+            _baseCareHives = Config.Bind(
+                "Base",
+                "Colmeias",
+                true,
+                "Se true (padrao), o companheiro esvazia as colmeias com mel: anda ate a colmeia, usa " +
+                "o RPC_Extract do jogo (o mel cai no chao) e cata o mel. So mexe em colmeias com " +
+                "pelo menos Base/ColmeiaMinima do mel maximo.");
+
+            _baseCareHoneyMin = Config.Bind(
+                "Base",
+                "ColmeiaMinima",
+                0.5f,
+                "Fracao (0.1 a 1) do mel maximo a partir da qual ele esvazia a colmeia (0.5 = metade).");
+
+            _baseCareSortChests = Config.Bind(
+                "Base",
+                "OrdenarBaus",
+                true,
+                "Se true (padrao), o companheiro ORDENA os baus da base: para cada item repetido em " +
+                "mais de um bau, ele leva o que esta no bau com menos para o bau que ja tem MAIS " +
+                "daquele item (o 'igual com igual'), carregando as pilhas na mao e voltando. " +
+                "Equipamento/ferramenta (pilha 1) so entra se estiver em Base/OrdenarItens.");
+
+            _baseCareSortItems = Config.Bind(
+                "Base",
+                "OrdenarItens",
+                "*",
+                "Quais itens ele pode mover entre baus: '*' (padrao) = todos os empilhaveis, ou uma " +
+                "lista de prefabs separada por virgula (ex.: Wood,Stone,Resin). O que nao estiver na " +
+                "lista fica onde esta.");
+
+            _baseCareSortPerTrip = Config.Bind(
+                "Base",
+                "OrdenarPorViagem",
+                50,
+                "Quantas unidades ele leva por viagem ao arrumar os baus (1 a 500). Valores altos " +
+                "enchem a mochila e disparam o deposito da Fase 2.14 no meio da arrumacao.");
+
+            _baseCareMergeStacks = Config.Bind(
+                "Base",
+                "JuntarPilhas",
+                true,
+                "Se true (padrao), o companheiro JUNTA as pilhas parciais do mesmo item dentro do " +
+                "mesmo bau (o 'Stack all' do jogo, item por item). Desligado, ele so move itens entre " +
+                "baus.");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -1070,6 +1276,32 @@ namespace ModAIValheim
                 _smeltFuel,
                 _smeltTakeOutput,
                 _smeltMaxInsert);
+
+            // Fase 2.17: a casa (zona + preferencias) e o cuidado da base (secao [Base]).
+            CompanionHome.Configure(
+                _homeZone,
+                _homeRadius,
+                _preferChestInHome,
+                _returnIfLost,
+                _lostDistance);
+
+            CompanionBaseCareConfig.Configure(
+                _baseCareEnabled,
+                _baseCareContinuous,
+                _baseCareRadius,
+                _baseCareScanInterval,
+                _baseCareRepair,
+                _baseCareRepairBelow,
+                _baseCareProvideHammer,
+                _baseCareHammerPrefab,
+                _baseCareRefuel,
+                _baseCareFuelLevel,
+                _baseCareHives,
+                _baseCareHoneyMin,
+                _baseCareSortChests,
+                _baseCareSortItems,
+                _baseCareSortPerTrip,
+                _baseCareMergeStacks);
 
             CompanionCommands.Register();
 

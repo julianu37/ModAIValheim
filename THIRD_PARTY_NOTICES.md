@@ -119,3 +119,23 @@ SOFTWARE.
 >   à máquina de estados do `CompanionJob`, ao "dono único do movimento por frame"
 >   (`MovementOwner.Farm`/`Cook`/`Smelt`), ao depósito da Fase 2.14 e às seções de config em PT-BR),
 >   sem cópia de arquivo.
+> - **Fase 2.17 (v0.4.5)** — **base e casa** seguem a lógica de
+>   `src/Companions/Jobs/UpkeepController.cs` (as fases <c>Repair</c>/<c>Fuel</c>/<c>SortTake</c>/
+>   <c>SortPut</c>/<c>Tidy</c>/<c>Hive</c>/<c>HiveCollect</c>/<c>Home</c> e a escolha por prioridade
+>   <c>PlanRepair</c> → <c>PlanFuel</c> → <c>PlanHoney</c> → <c>PlanSort</c>, o martelo na mão com a
+>   animação e o custo de stamina/durabilidade — <c>Hammer</c>/<c>PutHammerAway</c>/
+>   <c>SwingStamina</c>, a estação de craft da peça em <c>CraftingStation.HaveBuildStationInRange</c>
+>   e o <c>WearNTear.Repair()</c> —, o alvo de combustível por fração (<c>FuelTarget</c>/
+>   <c>Need</c>/<c>RefuelOn</c>), a colmeia por <c>RPC_Extract</c> + catar o mel
+>   (<c>PlanHoney</c>/<c>UpdateHive</c>/<c>UpdateHiveCollect</c> com o nível lido do ZDO), a
+>   consolidação "igual com igual" e a junção de pilhas parciais (<c>PlanSort</c>/<c>Merge</c>/
+>   <c>RoomIn</c>/<c>Key</c>/<c>Chests</c>/<c>BestDestination</c>) e o retorno ao centro
+>   (<c>UpdateHome</c>), além da casa de `src/Companions/Companion/CompanionSetup.cs`
+>   (<c>SetHomePosition</c>/<c>GetHomePosition</c>/<c>HasHomePosition</c>) e de
+>   `src/Companions/AI/MHR_ToolKeeper.cs` (<c>NearHome</c>/<c>HomeRange</c>/<c>AtHomeRange</c>),
+>   com a zona de casa desenhada por `src/Companions/Jobs/HomeZoneVisual.cs` e ajustada por
+>   `src/Companions/UI/HomeZonePanel.cs` (ambos **fora** desta entrega). A implementação no ModIA é
+>   própria (`CompanionHome`/`CompanionBaseCare`/`CompanionBaseCareConfig`/`UpkeepJob`, adaptados à
+>   máquina de estados do `CompanionJob`, ao "dono único do movimento por frame"
+>   (`MovementOwner.Upkeep`), ao depósito da Fase 2.14 e às seções de config em PT-BR), sem cópia de
+>   arquivo.

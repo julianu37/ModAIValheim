@@ -264,6 +264,45 @@ namespace ModAIValheim.Companion
             return FindInInventory(inventory, prefabName);
         }
 
+        /// <summary>
+        /// Garante que o companheiro tenha o item <paramref name="prefabName"/> no inventário,
+        /// <b>criando</b> um (durabilidade cheia, qualidade 1) quando falta. É o mesmo caminho do
+        /// <see cref="EnsureHarvestTools"/>; a Fase 2.17 usa para o <b>martelo</b> de construção
+        /// (sem ele o companheiro não repara nada — o jogo exige o martelo na mão, como para o
+        /// jogador). Devolve o item (o que já estava ou o recém-criado) e <c>null</c> quando o
+        /// prefab não existe no <c>ObjectDB</c> ou o inventário não aceita.
+        /// </summary>
+        internal static ItemDrop.ItemData EnsureItem(CompanionAI companion, string prefabName)
+        {
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null || string.IsNullOrEmpty(prefabName))
+            {
+                return null;
+            }
+
+            ItemDrop.ItemData existing = FindInInventory(inventory, prefabName);
+            if (existing != null)
+            {
+                return existing;
+            }
+
+            GameObject prefab = FindItemPrefab(prefabName);
+            if (prefab == null)
+            {
+                return null;
+            }
+
+            ItemDrop.ItemData created = AddItems(inventory, prefab, 1);
+            if (created != null)
+            {
+                Plugin.Log.LogInfo(
+                    $"[ModIA] Item fornecido ao companheiro: '{Utils.GetPrefabName(prefab.name)}'.");
+            }
+
+            return created;
+        }
+
         // ---------------------------------------------------------------------
         // Loadout padrão
         // ---------------------------------------------------------------------

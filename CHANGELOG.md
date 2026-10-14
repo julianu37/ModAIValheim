@@ -3,6 +3,66 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.5] — 2026-10-14
+
+### Adicionado
+- **BASE E CASA** (Fase 2.17). O companheiro passa a ter um **lar** e a **cuidar dele**:
+  - **A CASA (`Companion/CompanionHome.cs` + `Casa/HomeZona`).** O jogador define a casa (centro +
+    raio) com `modia_home set [raio]` no ponto onde está — gravada no `.cfg` (`Casa/HomeZona`,
+    sobrevive a reinícios); `modia_home clear` apaga e `modia_home info` mostra a casa e o que
+    depende dela. A casa é a referência do companheiro para **depositar** (um baú **dentro** da casa
+    leva um desconto de distância na escolha do depósito — `Casa/PreferirBauDaCasa`), para o
+    **cuidado da base** (o trabalho trabalha nesse raio) e para **voltar quando ficar perdido**
+    (`Casa/VoltarSePerdido`, **desligado** por padrão: com ele ligado, se o companheiro ficar longe
+    da casa **e** do jogador e sem nada mais no comando, ele volta para a base e espera em vez de
+    atravessar o mundo).
+  - **CUIDAR DA BASE — o trabalho `upkeep` (`Companion/Jobs/UpkeepJob.cs`).** `modia_job upkeep`
+    (ou `modia_basecare on` para o modo contínuo) faz o companheiro, **em ordem de prioridade**:
+    1. **REPARAR** as construções danificadas (`WearNTear`): pega o **martelo de construção**, anda
+       até a peça e dá o golpe pelo caminho do **`Player.Repair` do 1.0.17** — `WearNTear.Repair()`
+       (que dispara o `RPC_Repair`), com as mesmas exigências do jogo (a **estação de craft da peça**
+       no alcance — `CraftingStation.HaveBuildStationInRange` —, acesso na área privada e a chave
+       global `NoWorkbench`). **Não há custo de material**; o custo é **stamina** (a conta do
+       `Player.GetBuildStamina`, reduzida pela perícia da estação de construção) e a **durabilidade
+       do martelo**. Sem martelo nenhum e com `Base/FornecerMartelo` ligado, o mod cria um.
+    2. **ABASTECER** fogueiras/tochas/braseiros (`Fireplace`) com o combustível do próprio
+       inventário, uma unidade por vez (como o jogador) e pelo **`RPC_AddFuel`** do `ZNetView`, até
+       `Base/FogueiraNivel` do combustível máximo (o combustível é lido do ZDO, `ZDOVars.s_fuel`).
+    3. **ESVAZIAR AS COLMEIAS** (`Beehive`) com mel a partir de `Base/ColmeiaMinima` do máximo: usa
+       o **`RPC_Extract`** (o mel cai no chão) e **cata o mel**; o nível da colmeia vive no ZDO
+       (`ZDOVars.s_level`).
+    4. **ORDENAR OS BAÚS**: para cada item repetido em mais de um baú, leva o que está no baú com
+       menos para o baú que **já tem mais** daquele item ("igual com igual"), carregando as pilhas
+       na mão (`Base/OrdenarPorViagem` por viagem) e voltando; e **junta as pilhas parciais** do
+       mesmo item dentro do mesmo baú (`Base/JuntarPilhas`). O que pode ser movido sai de
+       `Base/OrdenarItens` (`*` = todos os empilháveis). Os baús são mexidos **direto no
+       inventário** (nada de abrir a GUI), com as mesmas regras de baú utilizável do depósito
+       (2.14). **Nada de perder item:** cada movimento confere o espaço antes (`CanAddItem`) e a
+       junção de pilhas devolve o item se o jogo recusar.
+  - **MODO CONTÍNUO (`Companion/CompanionBaseCare.cs` + `modia_basecare on|off`).** Com ele ligado
+    (`Base/Continuo` no `.cfg` ou o comando, que vale para a sessão), o companheiro **retoma o
+    cuidado da casa sozinho** sempre que fica ocioso (sem trabalho, coleta, depósito, loot ou
+    combate) e, sem nada para cuidar, **volta ao centro da base e espera** em vez de encerrar.
+    Precisa de uma casa definida. Um **`modia_stop`/`modia_job stop` desliga o modo contínuo**
+    (senão ele voltaria a cuidar da casa segundos depois e o comando pareceria não funcionar).
+  - **Comum:** um **dono novo do movimento por frame** (`MovementOwner.Upkeep`, usado pelo trabalho
+    e pela camada de voltar para casa), varredura com intervalo e buffers reaproveitados (nada por
+    frame), o mapa de "pule este alvo/baú por um tempo" (não insiste no que não deu para alcançar),
+    log deduplicado, HUD e as linhas novas do `modia_stats`.
+
+### Alterado
+- **Console:** `modia_job` passou a aceitar `upkeep` (e os apelidos `base`/`casa`/`cuidar`); são
+  novos o `modia_home <set|clear|info> [raio]` e o `modia_basecare [on|off]`.
+- **Depósito (2.14):** a escolha do baú passou a **preferir um baú dentro da casa**
+  (`Casa/PreferirBauDaCasa`), sem mudar nada quando não há casa definida.
+- **Config:** novas seções — `[Casa]` (`HomeZona` — escrita pelo comando —, `HomeRaio`,
+  `PreferirBauDaCasa`, `VoltarSePerdido`, `DistanciaPerdido`) e `[Base]` (`Ligado`, `Continuo`,
+  `RaioBase`, `IntervaloVarredura`, `Reparar`, `RepararAbaixo`, `FornecerMartelo`, `MarteloPrefab`,
+  `AbastecerFogueiras`, `FogueiraNivel`, `Colmeias`, `ColmeiaMinima`, `OrdenarBaus`, `OrdenarItens`,
+  `OrdenarPorViagem`, `JuntarPilhas`).
+- **`CompanionInventory`:** novo `EnsureItem` (garante um item no inventário, criando se faltar) —
+  é o caminho do martelo do reparo, o mesmo das ferramentas de coleta.
+
 ## [0.4.4] — 2026-10-14
 
 ### Adicionado

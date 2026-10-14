@@ -9,8 +9,12 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 > criaturas que ele mesmo abate** (couro, penas, ossos...), **abre portas e evita
 > barrancos no caminho**, mostra **nome + teclas no
 > hover**, tem um **menu no jogo** (status, aparência, combate, coleta e teclas) e **volta o mesmo**
-> depois de dispensado (itens, equipamento, aparência e modo). Ainda faltam **multiplayer**,
-> **voz/IA** e **backend**.
+> depois de dispensado (itens, equipamento, aparência e modo). Ele também **come sozinho**, tem
+> **resistência (stamina)** e **perícias que evoluem**, respeita um **teto de peso** (deposita no baú
+> e volta, com *tool keeper*), executa **trabalhos** (`modia_job`: caçar, pescar, cultivar, cozinhar,
+> fundir e **cuidar da base**) e agora tem uma **casa** (`modia_home`), onde **deposita, cuida da
+> base** (reparar construções, abastecer fogueiras, esvaziar colmeias e ordenar baús) e para onde
+> **volta quando se perde**. Ainda faltam **multiplayer**, **voz/IA** e **backend**.
 
 ---
 
@@ -36,15 +40,17 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **F4** | Iniciar/parar a coleta do **recurso padrão** (config `Coleta/RecursoPadrao`, padrão `Wood`) |
 | **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
 | `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`, `modia_gather cobre 30`) — ver a [lista de materiais](#materiais-suportados-fase-28) |
-| `modia_job <hunt\|fish\|farm\|cook\|smelt\|stop> [qtd]` | Manda o companheiro **executar um trabalho** (caçar, pescar, cultivar, cozinhar, fundir) — ver [Trabalhos](#trabalhos-jobs-fase-216) |
+| `modia_job <hunt\|fish\|farm\|cook\|smelt\|upkeep\|stop> [qtd]` | Manda o companheiro **executar um trabalho** (caçar, pescar, cultivar, cozinhar, fundir, **cuidar da base**) — ver [Trabalhos](#trabalhos-jobs-fase-216) |
 | `modia_farm <set\|clear\|info> [raio]` | Define a **zona de fazenda** do trabalho de cultivar no ponto onde você está (raio opcional) |
+| `modia_home <set\|clear\|info> [raio]` | Define a **casa/base** do companheiro no ponto onde você está (raio opcional) — ver [Base e casa](#base-e-casa-fase-217) |
+| `modia_basecare [on\|off]` | Liga/desliga o **modo contínuo** do cuidado da base (ele cuida da casa sozinho quando fica ocioso) |
 | `modia_stop` | Para a coleta, o trabalho e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
-| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito, ferramentas emprestadas e o **trabalho em andamento** do companheiro |
+| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito, ferramentas emprestadas, o **trabalho em andamento**, a **casa** e o **cuidado da base** do companheiro |
 | `modia_deposit` | (console, F5) manda o companheiro levar a carga ao **baú** mais próximo agora |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
@@ -659,6 +665,93 @@ estado é lido direto do ZDO (`slotN`/`slotstatusN` no espeto, `Content`/`StartT
 | `modia_farm` sem argumento | a zona de fazenda e as culturas plantáveis |
 | log do BepInEx | cada passo relevante, deduplicado |
 
+### Base e casa (Fase 2.17)
+
+O companheiro ganha um **lar** — e passa a **cuidar dele**. São duas coisas: a **casa** (onde é a
+base) e o **trabalho de cuidado** (o que ele faz lá).
+
+#### A casa — onde é a base
+
+Fique no lugar que você chama de casa e use `modia_home set` (raio padrão `Casa/HomeRaio`, 20 m) ou
+`modia_home set 25`. A casa (centro + raio) fica **gravada no `.cfg`** (`Casa/HomeZona`), então
+sobrevive a reinícios; `modia_home clear` apaga e `modia_home info` mostra o estado.
+
+```
+modia_home set 25    # define a casa no ponto onde você está, com 25 m de raio
+modia_home info      # mostra a casa, o cuidado da base e o que ele faz dentro dela
+modia_home clear     # apaga a casa
+```
+
+A casa é a referência de três coisas:
+
+1. **Depósito (`Casa/PreferirBauDaCasa`, ligado por padrão):** ao encher, ele prefere um **baú dentro
+   da casa** — um baú da casa leva um desconto de distância igual ao raio dela na escolha do depósito
+   (2.14), então ele atravessa a base para depositar "em casa" em vez de usar um baú qualquer do lado
+   de fora. Sem casa definida, vale só a distância (como antes).
+2. **Cuidado da base:** o trabalho de manutenção trabalha **dentro do raio** da casa.
+3. **Voltar quando perdido (`Casa/VoltarSePerdido`, DESLIGADO por padrão):** se você atravessou um
+   portal, morreu longe ou ele ficou preso no terreno, ele **volta para a base** (e espera por você)
+   em vez de atravessar o mundo atrás de você. Só age quando ele está a mais de
+   `Casa/DistanciaPerdido` (80 m) de você **e** longe da casa, e sem nada mais no comando.
+
+#### Cuidar da base — o trabalho `upkeep`
+
+```
+modia_job upkeep     # uma passada: cuida do que estiver precisando e encerra
+modia_job upkeep 10  # cuida de 10 coisas (reparos, abastecimentos, colmeias, arrumações)
+modia_basecare on    # modo contínuo: ele cuida da casa sozinho quando fica ocioso
+modia_basecare off   # desliga o modo contínuo
+modia_basecare       # mostra o estado
+```
+
+Dentro do raio da casa ele, **em ordem de prioridade**:
+
+1. **REPARA** as construções danificadas. Ele pega o **martelo de construção**, anda até a peça e dá
+   o golpe de reparo **pelo caminho do jogo** (`WearNTear.Repair` → `RPC_Repair`, o mesmo do
+   `Player.Repair`): vale a **estação de craft da peça** no alcance (bancada, forja…), o acesso em
+   área privada e a chave de mundo `NoWorkbench`. **Não gasta material** — o custo é **stamina** (a
+   conta do jogo, reduzida pela perícia) e a **durabilidade do martelo**. Ele só repara abaixo de
+   `Base/RepararAbaixo` (90% por padrão: o desgaste leve de chuva passa) e, se não tiver martelo
+   nenhum, o mod cria um (`Base/FornecerMartelo`). Peças sem a bancada por perto ficam de fora —
+   como ficariam para um jogador.
+2. **ABASTECE** fogueiras, tochas e braseiros (`Fireplace`) com o **combustível do inventário**
+   (madeira, carvão, resina…), uma unidade por vez como o jogador, mantendo
+   `Base/FogueiraNivel` (50%) do combustível máximo. Sem combustível na mochila ele não busca em
+   baús nesta fase.
+3. **ESVAZIA AS COLMEIAS** com mel (`Beehive`): usa o `RPC_Extract` do jogo (o mel cai no chão) e
+   **cata o mel**. Só mexe em colmeias com pelo menos `Base/ColmeiaMinima` (50%) do mel máximo.
+4. **ORDENA OS BAÚS** — "igual com igual": para cada item repetido em mais de um baú, ele leva o que
+   está no baú com **menos** para o baú que **já tem mais** daquele item, carregando as pilhas na mão
+   (`Base/OrdenarPorViagem` por viagem) e voltando. Depois **junta as pilhas parciais** do mesmo item
+   dentro do mesmo baú (`Base/JuntarPilhas`). O que pode ser movido sai de `Base/OrdenarItens`
+   (`*` = todos os empilháveis; equipamento/ferramenta só se estiverem na lista). Ele mexe nos baús
+   **direto** (nada de abrir a GUI) e confere o espaço antes de cada movimento — **nunca perde item**.
+
+- **Modo contínuo (`modia_basecare on` ou `Base/Continuo`):** com ele ligado, o companheiro **retoma
+  o cuidado da casa sozinho** sempre que fica ocioso (sem trabalho, coleta, depósito, loot ou
+  combate) e, quando não há nada para cuidar, **volta ao centro da base e espera** em vez de encerrar.
+  Precisa de uma casa definida. `modia_stop`/`modia_job stop` **desliga** o modo contínuo (senão ele
+  voltaria a cuidar da casa segundos depois).
+- **Varredura:** a cada `Base/IntervaloVarredura` (3 s), com buffers reaproveitados — nada por frame.
+  Um alvo que não deu para alcançar (parede, água) sai da fila por um tempo em vez de ser tentado para
+  sempre.
+
+> **Fora do núcleo (ficou de fora desta fase):** o **visual da zona da casa** (o anel no chão que a
+> referência desenha enquanto você ajusta) e o **painel de ajuste da casa** (`HomeZonePanel`) — aqui a
+> casa é definida por comando e confirmada pelo `modia_home info`; as **pilhas de recurso no chão**
+> (`UpkeepPiles`); **buscar combustível/insumos em baús**; a lista de itens por **categoria**; e o
+> **descanso/dormir na casa** (fica para a 2.18).
+
+#### Leitura e HUD
+
+| Onde | O que mostra |
+|---|---|
+| `modia_stats` (F5) | `Casa: 12,4 (raio 20 m), bau da casa preferido no deposito.` e `Cuidado da base: ligado = True, so por comando, tarefas: reparar, abastecer, colmeias, ordenar baus.` |
+| `modia_home` / `modia_basecare` sem argumento | a casa + o cuidado da base (e, sem casa, o lembrete do `modia_home set`) |
+| `modia_job` sem argumento | o trabalho atual (ex.: `Cuidar da base (3, 1.2 min) — reparando Parede de madeira`) |
+| HUD | início, cada reparo/abastecimento/colmeia/arrumação e o encerramento |
+| log do BepInEx | cada passo relevante, deduplicado |
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
@@ -684,6 +777,11 @@ estado é lido direto do ZDO (`slotN`/`slotstatusN` no espeto, `Content`/`StartT
   `FarmManterSementes`, `CozinhaRaio`, `CozinhaCombustivel`, `CozinhaNivelCombustivel`,
   `CozinhaRetirarPronto`, `CozinhaCaldeirao`, `CozinhaEsperaPreparo`, `FundicaoRaio`,
   `FundicaoCombustivel`, `FundicaoRetirarProduto`, `FundicaoPorViagem`
+- **Casa** — `HomeZona` (escrita pelo `modia_home set`), `HomeRaio`, `PreferirBauDaCasa`,
+  `VoltarSePerdido`, `DistanciaPerdido`
+- **Base** — `Ligado`, `Continuo`, `RaioBase`, `IntervaloVarredura`, `Reparar`, `RepararAbaixo`,
+  `FornecerMartelo`, `MarteloPrefab`, `AbastecerFogueiras`, `FogueiraNivel`, `Colmeias`,
+  `ColmeiaMinima`, `OrdenarBaus`, `OrdenarItens`, `OrdenarPorViagem`, `JuntarPilhas`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -703,8 +801,8 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu...
-│  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob, FishJob, FarmJob (+ FarmZone/FarmCatalog), CookJob, SmeltJob, JobStations + patches do flutuador
+│  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu, Home, BaseCare...
+│  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob, FishJob, FarmJob (+ FarmZone/FarmCatalog), CookJob, SmeltJob, UpkeepJob (+ BaseCareConfig), JobStations + patches do flutuador
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -1011,6 +1109,46 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 7. **Interrupções:** durante qualquer um dos trabalhos, `modia_gather wood` ou encher a mochila
    **pausa** o trabalho (a viagem ao baú vence) e ele retoma depois; `modia_stop` (ou
    `modia_job stop`) encerra na hora e ele volta a seguir você.
+
+### Teste rápido da base e da casa (Fase 2.17)
+
+1. **Definir a casa:** `modia_home set 20` no meio da sua base → no console
+   `Casa definida em X, Z com raio 20 m (gravada em Casa/HomeZona)`. `modia_home` (sem argumento)
+   mostra a casa e o estado do cuidado. Confira no log do BepInEx:
+   `[ModIA] Casa: ... | preferir bau da casa = True | voltar se perdido = False`.
+2. **Depósito em casa:** encha a mochila (ou use `modia_deposit`) com um baú **dentro** da casa e
+   outro mais perto **fora** dela → ele vai ao **baú da casa** (o log diz qual baú).
+3. **Reparar:** deixe uma parede/piso da base danificada (bata nela algumas vezes, ou espere a chuva
+   desgastar) e use `modia_job upkeep` → ele pega o **martelo** (aparece na mão dele), anda até a peça
+   e o log mostra `Base: reparei Parede de madeira (stamina -X)`. A peça volta a 100% na hora (o
+   `RPC_Repair` do jogo). Teste com uma peça **longe** de qualquer bancada: ele **não** repara e o log
+   avisa que falta a estação de craft (como um jogador).
+   - Sem martelo no inventário e `Base/FornecerMartelo = true`, o log mostra
+     `Item fornecido ao companheiro: 'Hammer'`.
+4. **Abastecer fogueira:** deixe uma fogueira quase apagando com **madeira** no inventário dele
+   (`modia_gather wood 20`) e `modia_job upkeep` → `Base: pus Nx 'Wood' em Fogueira`. A fogueira sobe
+   até ~50% (`Base/FogueiraNivel`) e o fogo não apaga.
+5. **Colmeia:** espere a colmeia encher (ou force com `spawn Beehive` e deixe o mel acumular) e
+   `modia_job upkeep` → `Base: esvaziei a colmeia` + `Base: catei N mel da colmeia`; o mel aparece no
+   inventário dele (`modia_inv`).
+6. **Ordenar baús:** espalhe o mesmo item (ex.: `Wood`) em **dois** baús, com mais em um deles, e
+   `modia_job upkeep` → o log mostra
+   `Base: tirei N Madeira de <baú A> para levar ao bau com mais deles (<baú B>)` e depois
+   `Base: pus N Madeira em <baú B>`. Se um baú tiver duas pilhas parciais do mesmo item, ele também
+   `juntei N pilha(s)`.
+   - `Base/OrdenarItens = Wood` limita a arrumação só à madeira (o resto fica onde está).
+7. **Modo contínuo:** `modia_basecare on` → `Modo continuo ligado: ele ja esta cuidando da base`
+   (com a casa definida). Ele passa a reparar/abastecer/ordenar sozinho, volta ao centro quando não há
+   nada e o `modia_stats` mostra `Cuidado da base: ligado = True, continuo (nesta sessao), tarefas: ...`.
+   - `modia_stop` **desliga** o modo contínuo (o console avisa) — use `modia_basecare on` para voltar.
+   - Sem casa definida, `modia_basecare on` avisa que precisa do `modia_home set`.
+8. **Voltar para casa (opcional):** `Casa/VoltarSePerdido = true` no `.cfg`, reinicie (ou use
+   `modia_home set` de novo) e afaste-se muito com o companheiro preso para trás → no log
+   `Casa: o companheiro esta a N m da base e longe do jogador; voltando para casa` e, ao chegar,
+   `Casa: o companheiro chegou em casa e espera por voce`.
+9. **Não quebrou nada:** com o trabalho rodando, `modia_job hunt`, `modia_gather wood` ou um ataque
+   **pausam** o cuidado (o log avisa) e ele retoma depois; `Jobs/Ligado = false` ou
+   `Base/Ligado = false` fazem o `modia_job upkeep` recusar com o motivo.
 
 ---
 

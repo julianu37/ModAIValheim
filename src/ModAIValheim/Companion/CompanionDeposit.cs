@@ -583,6 +583,12 @@ namespace ModAIValheim.Companion
         /// <paramref name="radius"/>. Com <paramref name="requiredItem"/> o baú precisa ter espaço
         /// para esse item (senão basta ter um slot livre). A varredura percorre as peças do mundo,
         /// então roda só ao iniciar uma viagem e respeita <see cref="SearchCooldown"/>.
+        ///
+        /// <para>
+        /// <b>Fase 2.17:</b> um baú <b>dentro da casa</b> (<see cref="CompanionHome"/>) leva um
+        /// desconto de distância (<c>Casa/PreferirBauDaCasa</c>) — o depósito acontece "em casa"
+        /// mesmo quando existe um baú mais perto do lado de fora.
+        /// </para>
         /// </summary>
         internal static Container FindNearestChest(Vector3 origin, float radius, ItemDrop.ItemData requiredItem)
         {
@@ -639,7 +645,16 @@ namespace ModAIValheim.Companion
                     continue;
                 }
 
+                // Fase 2.17: a CASA é a referência do depósito — um baú dentro da zona da casa leva
+                // um desconto na distância (Casa/PreferirBauDaCasa), então ele deposita "em casa"
+                // mesmo quando há um baú qualquer mais perto do lado de fora.
                 float distance = Vector3.Distance(origin, container.transform.position);
+                if (CompanionHome.PreferChestInHome && CompanionHome.IsSet &&
+                    CompanionHome.Zone.Contains(container.transform.position))
+                {
+                    distance -= CompanionHome.ChestPreferenceBonus;
+                }
+
                 if (distance < bestDistance)
                 {
                     bestDistance = distance;

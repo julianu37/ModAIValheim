@@ -66,6 +66,14 @@ namespace ModAIValheim.Companion
         /// abastecer e retirar o produto.
         /// </summary>
         Smelt,
+
+        /// <summary>
+        /// O <b>cuidado da base</b> (Fase 2.17): andar até a construção/fogueira/colmeia/baú da
+        /// casa para reparar, abastecer, esvaziar ou ordenar — e voltar ao centro quando não há o
+        /// que fazer (modo contínuo). Também é o dono do frame da camada de <b>voltar para casa</b>
+        /// quando o companheiro fica perdido (<c>Casa/VoltarSePerdido</c>).
+        /// </summary>
+        Upkeep,
     }
 
     /// <summary>

@@ -144,6 +144,11 @@ namespace ModAIValheim.Companion
             CompanionMovement.Shutdown();
             CompanionDeposit.Shutdown();
             CompanionToolKeeper.Shutdown();
+
+            // Fase 2.17: a casa e o cuidado da base soltam o estado estático (o modo contínuo
+            // escolhido por comando volta ao padrão do .cfg no próximo carregamento).
+            CompanionHome.Shutdown();
+            CompanionBaseCare.Shutdown();
         }
 
         private static void Spawn()

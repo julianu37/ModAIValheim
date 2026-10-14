@@ -45,6 +45,9 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | **2.16** | **Trabalhos (jobs)**: a mesma interface de "aponte para o trabalho" | 🔄 |
 | 2.16a | Infraestrutura de jobs (`CompanionJobQueue`: um trabalho por vez + prioridade explícita) + **caçar** e **pescar** (`modia_job hunt\|fish\|stop`) | ✅ |
 | 2.16b | **Cultivar** (zona de fazenda: plantar/colher/guardar), **cozinhar/bebidas** (espeto/forno/barril/caldeirão) e **fundições** (forno/alto-forno/carvoeira) — `modia_job farm\|cook\|smelt` + `modia_farm set\|clear\|info` | ✅ (v0.4.4) |
+| **2.17** | **Base e casa**: cuidar da base (reparar/abastecer/colmeias/ordenar baús) e ter uma casa | ✅ (v0.4.5) |
+| 2.17a | **Casa** (centro + raio): `modia_home set\|clear\|info`, gravada em `Casa/HomeZona`; o depósito prefere o baú da casa e ele volta para casa quando perdido (`Casa/VoltarSePerdido`) | ✅ (v0.4.5) |
+| 2.17b | **Cuidar da base**: trabalho `upkeep` — reparar construções (`WearNTear`), abastecer fogueiras (`Fireplace`), esvaziar colmeias (`Beehive`) e ordenar baús — + modo contínuo (`modia_basecare on\|off`) | ✅ (v0.4.5) |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -222,3 +225,33 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   - **Comum aos três:** um **dono novo do movimento por frame** cada (`MovementOwner.Farm/Cook/Smelt`),
     varredura com intervalo e buffers reaproveitados, log deduplicado, HUD e `modia_stats` iguais aos
     outros trabalhos. Console: `modia_job farm|cook|smelt` e `modia_farm`.
+- **Fase 2.17 (0.4.5)** — **BASE E CASA**.
+  - **A CASA (`CompanionHome.cs` + `Casa/HomeZona`):** centro + raio definidos com
+    `modia_home set [raio]` no ponto do jogador, gravados na config (sobrevivem a reinícios);
+    `clear` apaga e `info` mostra. A casa é a referência de três coisas: o **depósito** prefere um
+    baú de dentro dela (`Casa/PreferirBauDaCasa` — o baú da casa leva um desconto de distância
+    igual ao raio na escolha da 2.14), o **cuidado da base** trabalha no raio dela e o
+    **voltar quando perdido** (`Casa/VoltarSePerdido`, padrão desligado) traz o companheiro de volta
+    quando ele fica longe da casa **e** do jogador (portal, morte longe, preso no terreno) — a
+    camada roda depois do trabalho e reivindica `MovementOwner.Upkeep`.
+  - **CUIDAR DA BASE (`UpkeepJob.cs` + `[Base]`):** `modia_job upkeep` (uma passada) ou
+    `modia_basecare on` (modo contínuo, também `Base/Continuo`), com a prioridade
+    **reparar → abastecer → colmeia → ordenar → juntar pilhas**. O **reparo** segue o caminho do
+    `Player.Repair` do 1.0.17 (`WearNTear.Repair()` → `RPC_Repair`; martelo na mão, estação de craft
+    da peça no alcance por `CraftingStation.HaveBuildStationInRange`, acesso na área privada e a
+    chave `NoWorkbench`; **sem custo de material** — o custo é stamina (`Player.GetBuildStamina`) e a
+    durabilidade do martelo; `Base/FornecerMartelo` cria um quando falta). As **fogueiras**
+    (`Fireplace`) são abastecidas com o combustível do inventário pelo `RPC_AddFuel` até
+    `Base/FogueiraNivel` do máximo (estado no ZDO, `ZDOVars.s_fuel`); as **colmeias** (`Beehive`) são
+    esvaziadas pelo `RPC_Extract` (o mel cai no chão e é catado) a partir de `Base/ColmeiaMinima` do
+    mel máximo (nível no ZDO, `ZDOVars.s_level`); e os **baús** são ordenados "igual com igual" (cada
+    item repetido vai para o baú que já tem mais dele, carregando as pilhas na mão,
+    `Base/OrdenarPorViagem`) com a **junção das pilhas parciais** do mesmo item
+    (`Base/JuntarPilhas`), mexendo no inventário dos baús direto (nada de GUI) e conferindo o espaço
+    antes de cada movimento (`CanAddItem`) para nunca perder item. No modo contínuo ele **volta ao
+    centro** e espera quando não há nada para cuidar, e um `modia_stop`/`modia_job stop` desliga o
+    modo. Dono novo do movimento por frame: `MovementOwner.Upkeep`. Console: `modia_job upkeep` +
+    `modia_home` + `modia_basecare`. **Fora do núcleo:** o **visual da zona da casa** (o anel do
+    `HomeZoneVisual`) e o **painel de ajuste** (`HomeZonePanel`) da referência, as **pilhas de
+    recurso no chão** (`UpkeepPiles`), buscar combustível/insumos em baús (`FuelFetch`), a lista de
+    itens por categoria e o **descanso/dormir na casa** (2.18).

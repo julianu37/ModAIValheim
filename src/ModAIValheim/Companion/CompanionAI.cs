@@ -356,6 +356,11 @@ namespace ModAIValheim.Companion
             // combate > coleta > depósito > loot > TRABALHO > follow.
             UpdateJob(dt);
 
+            // Fase 2.17: voltar para casa quando o companheiro ficar perdido (config
+            // Casa/VoltarSePerdido, desligada por padrão). Roda depois do trabalho (que tem
+            // prioridade) e antes da guarda de follow — quando age, é ele o dono do movimento.
+            UpdateHomeReturn(dt);
+
             // Fase 2.10 (#2/#5): guarda o passo do follow nativo (porta/barranco) — só quando a
             // coleta não reivindicou o frame.
             UpdateFollowSafety(dt);
@@ -1879,6 +1884,10 @@ namespace ModAIValheim.Companion
                     }
                 }
 
+                // Fase 2.17: modo contínuo do cuidado da base — com Base/Continuo (ou
+                // modia_basecare on) o companheiro retoma o cuidado da casa sozinho quando fica
+                // ocioso. A tentativa tem espera mínima entre tentativas (nunca por frame).
+                CompanionBaseCare.TryAutoStart(this);
                 return;
             }
 
@@ -1902,6 +1911,42 @@ namespace ModAIValheim.Companion
 
             _jobWaitLogged = false;
             CompanionJobQueue.Tick(this, dt);
+        }
+
+        // ---------------------------------------------------------------------
+        // Fase 2.17: voltar para casa quando perdido
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Camada de <b>voltar para casa</b> (Fase 2.17, config <c>Casa/VoltarSePerdido</c>): quando
+        /// o companheiro fica <b>longe da casa e do jogador</b> (portal, morte longe, preso no
+        /// terreno) ele volta para o centro da base em vez de atravessar o mundo atrás do jogador.
+        ///
+        /// <para>
+        /// Só age quando não há nada mais importante no comando — trabalho, coleta, viagem ao baú ou
+        /// alvo de combate — e reivindica o <see cref="MovementOwner.Upkeep"/> no frame em que
+        /// dirige o passo (a guarda de follow só age com <see cref="MovementOwner.Native"/>).
+        /// Desligado por padrão: sem casa definida ou com a chave em <c>false</c>, nada aqui roda.
+        /// </para>
+        /// </summary>
+        private void UpdateHomeReturn(float dt)
+        {
+            if (!CompanionHome.ReturnIfLost || !CompanionHome.IsSet)
+            {
+                return;
+            }
+
+            if (CompanionJobQueue.HasJob || CompanionHarvest.IsActive || CompanionDeposit.TripActive)
+            {
+                return;
+            }
+
+            if (GetTargetCreature() != null)
+            {
+                return;
+            }
+
+            CompanionHome.TickReturn(this, dt);
         }
 
         // ---------------------------------------------------------------------
