@@ -10,7 +10,10 @@ namespace ModAIValheim.Companion
     /// ao mesmo tempo (a última escrita venceria de forma imprevisível).
     /// Prioridade: <see cref="Harvest"/> (coleta ativa) &gt; <see cref="Loot"/> (catar abate) &gt;
     /// <see cref="Native"/> (follow/combate do motor do jogo); o combate vence a coleta pausando-a
-    /// antes de chegar aqui.
+    /// antes de chegar aqui. As camadas de trabalho (jobs), casa e qualidade de vida (Fase 2.18:
+    /// <see cref="Portal"/>/<see cref="Cart"/>/<see cref="Rest"/>/<see cref="Sleep"/>) reivindicam o
+    /// frame só quando de fato dirigem o companheiro — e, por rodarem depois do motor nativo, vencem
+    /// quem veio antes.
     /// </summary>
     internal enum MovementOwner
     {
@@ -74,6 +77,34 @@ namespace ModAIValheim.Companion
         /// quando o companheiro fica perdido (<c>Casa/VoltarSePerdido</c>).
         /// </summary>
         Upkeep,
+
+        /// <summary>
+        /// O <b>descanso</b> (Fase 2.18): o companheiro está parado descansando (sentado perto da
+        /// fogueira/na casa) ou andando até a fogueira para sentar. Quem manda aqui é o
+        /// <see cref="CompanionRest"/>.
+        /// </summary>
+        Rest,
+
+        /// <summary>
+        /// O <b>sono</b> (Fase 2.18): o companheiro está deitado na cama (ou andando até ela). O
+        /// passo fica travado enquanto ele dorme — quem manda aqui é o <see cref="CompanionRest"/>.
+        /// </summary>
+        Sleep,
+
+        /// <summary>
+        /// O <b>seguir pelo portal</b> (Fase 2.18): o jogador atravessou um portal e o companheiro
+        /// anda até ele para atravessar também (ou acabou de ser levado para o lado de lá). Quem
+        /// manda aqui é o <see cref="CompanionPortalFollow"/>.
+        /// </summary>
+        Portal,
+
+        /// <summary>
+        /// A <b>carroça</b> (Fase 2.18): o companheiro está andando até o engate da carroça para
+        /// puxá-la. Depois de engatado ele volta a ser dirigido pelo follow nativo (a carroça vem
+        /// atrás, presa pelo <c>ConfigurableJoint</c> do jogo). Quem manda aqui é o
+        /// <see cref="CompanionCart"/>.
+        /// </summary>
+        Cart,
     }
 
     /// <summary>

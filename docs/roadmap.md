@@ -48,6 +48,10 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | **2.17** | **Base e casa**: cuidar da base (reparar/abastecer/colmeias/ordenar baús) e ter uma casa | ✅ (v0.4.5) |
 | 2.17a | **Casa** (centro + raio): `modia_home set\|clear\|info`, gravada em `Casa/HomeZona`; o depósito prefere o baú da casa e ele volta para casa quando perdido (`Casa/VoltarSePerdido`) | ✅ (v0.4.5) |
 | 2.17b | **Cuidar da base**: trabalho `upkeep` — reparar construções (`WearNTear`), abastecer fogueiras (`Fireplace`), esvaziar colmeias (`Beehive`) e ordenar baús — + modo contínuo (`modia_basecare on\|off`) | ✅ (v0.4.5) |
+| **2.18** | **Qualidade de vida**: sentar no fogo, dormir na cama, seguir pelo portal e puxar a carroça | ✅ (v0.4.6) |
+| 2.18a | **Descanso e sono** (`CompanionRest` + `[Descanso]`): senta na fogueira acesa (ou na casa) e dorme numa cama livre, com cura/stamina aceleradas e o **descanso** do jogo (números do `SE_Rested` + conforto); `modia_rest sit\|sleep\|stop\|info` | ✅ (v0.4.6) |
+| 2.18b | **Seguir pelo portal** (`CompanionPortalFollow` + `[Portal]`): ele anda até o portal e é levado para junto de você quando o seu teleporte termina | ✅ (v0.4.6) |
+| 2.18c | **Carroça** (`CompanionCart` + `[Carroca]`): `modia_cart pull\|release` — ele anda até o engate do `Vagon` e puxa a carroça pelo `ConfigurableJoint` do jogo | ✅ (v0.4.6) |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -253,5 +257,46 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
     modo. Dono novo do movimento por frame: `MovementOwner.Upkeep`. Console: `modia_job upkeep` +
     `modia_home` + `modia_basecare`. **Fora do núcleo:** o **visual da zona da casa** (o anel do
     `HomeZoneVisual`) e o **painel de ajuste** (`HomeZonePanel`) da referência, as **pilhas de
-    recurso no chão** (`UpkeepPiles`), buscar combustível/insumos em baús (`FuelFetch`), a lista de
-    itens por categoria e o **descanso/dormir na casa** (2.18).
+    recurso no chão** (`UpkeepPiles`), buscar combustível/insumos em baús (`FuelFetch`) e a lista de
+    itens por categoria.
+- **Fase 2.18 (0.4.6)** — **QUALIDADE DE VIDA** (o último bloco do SP).
+  - **DESCANSO E SONO (`CompanionRest.cs` + `[Descanso]`):** quando o companheiro fica **ocioso**
+    (`CompanionAI.JobIsIdle`: sem trabalho, coleta, viagem ao baú, loot nem alvo de combate) e você
+    está perto (`Descanso/RaioJogador`), ele **senta** para descansar perto de uma **fogueira acesa**
+    (`Fireplace.IsBurning`) — ou dentro da casa (`modia_home set`) — e **dorme numa cama livre**
+    (`Bed`) de noite (`DormirDeNoite`) ou quando **você se deita** (`DormirQuandoVoceDorme`). A
+    **cama do jogador é do jogador**: ele nunca usa a cama que é o seu **ponto de spawn atual**
+    (`Bed.IsCurrent`) nem a de outro jogador (`Bed.GetOwner`). A **animação** sai pelo
+    `ZSyncAnimation` do corpo (o mesmo componente que o `Player` usa): `SetBool("emote_sit", true)`
+    para sentar e `SetBool("attach_bed", true)` para deitar (os dois **sincronizados pelo ZDO**,
+    conferidos com `HasParameter`). O **sono** segue o caminho do `Player.AttachStart`/`AttachStop`
+    do jogo (que é **vazio** para um NPC): posição do `Bed.m_spawnPoint`, gravidade desligada,
+    colisão ignorada com os colliders da cama, `ZDOVars.s_inBed` no ZDO (é o que faz a noite passar
+    mais rápido quando todos estão na cama) e `attach_bed` — desfeito inteiro ao acordar, quando ele
+    levanta **ao lado** da cama. O **descanso** lê os números do `SE_Rested` vanilla
+    (`ObjectDB.GetStatusEffect`: `m_baseTTL`, `m_TTLPerComfortLevel`, `m_healthRegenMultiplier`,
+    `m_staminaRegenMultiplier`, `m_raiseSkillModifier`) e o **conforto** pelo caminho do jogo
+    (`Cover.GetCoverForPoint` + `SE_Rested.CalculateComfortLevel`), depois de um aquecimento
+    (`Descanso/TempoParaDescansar`): a stamina regenera com o multiplicador do descanso, a vida sobe
+    por segundo e as perícias ganham o bônus (`CompanionSkills.RaiseSkill` ×
+    `CompanionRest.SkillGainMultiplier`). Donos novos do movimento por frame:
+    `MovementOwner.Rest`/`MovementOwner.Sleep`. Console: `modia_rest info|sit|sleep|stop`.
+  - **SEGUIR PELO PORTAL (`CompanionPortalFollow.cs` + `[Portal]`):** no 1.0.17 quem atravessa um
+    portal é o `Player` (`TeleportWorld.Interact` → `Player.TeleportTo`); o companheiro é um
+    `Humanoid` e `Character.TeleportTo` é vazio na base — sem esta camada ele **fica para trás**. A
+    detecção é por **observação do estado público do jogador** (`Player.IsTeleporting`, **sem patch
+    Harmony**): quando o teleporte começa, guarda-se o `TeleportWorld` mais próximo e o companheiro
+    **anda até o portal** (`MovementOwner.Portal`); quando o teleporte termina, ele é levado para
+    junto do jogador (`CompanionAI.JobWarp`: corpo + `Rigidbody` + posição no ZDO, com
+    `ZoneSystem.FindFloor` para assentar no chão). Ele **não** é levado se já estiver perto (portais
+    curtos) e **não** segue se estiver ocupado (trabalho, coleta, depósito, loot, combate ou
+    carroça) — aí quem resolve é o `Casa/VoltarSePerdido` (2.17). **Fora do núcleo:** o patch de
+    `Player.TeleportTo`/`UpdateTeleport` da referência (aqui não há patch nenhum).
+  - **CARROÇA (`CompanionCart.cs` + `[Carroca]`, `modia_cart pull|release`):** o companheiro anda
+    até o **engate** do `Vagon` (`m_attachPoint.position - m_attachOffset`,
+    `MovementOwner.Cart`) e chama o `Vagon.Interact` do jogo — é o próprio `ConfigurableJoint` do
+    jogo que prende o corpo dele à carroça (`AttachTo`, com o `m_playerExtraPullMass`), exatamente
+    como quando **você** puxa; depois de engatado ele volta a ser dirigido pelo follow nativo (é o
+    que faz a carroça acompanhar você) e a camada só **vigia** (carroça destruída ou junta
+    arrebentada → ele solta e volta a te seguir). Ele **nunca engata sozinho** e a carroça **não**
+    atravessa portal.

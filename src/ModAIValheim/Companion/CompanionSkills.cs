@@ -206,6 +206,10 @@ namespace ModAIValheim.Companion
                 seman.ModifyRaiseSkill(type, ref multiplier);
             }
 
+            // Fase 2.18: o descanso também acelera o ganho de perícia, como o m_raiseSkillModifier
+            // do SE_Rested do jogador.
+            multiplier *= CompanionRest.SkillGainMultiplier;
+
             float gain = state.Def.m_increseStep * factor * multiplier * Game.m_skillGainRate;
             state.Accumulator += gain;
 

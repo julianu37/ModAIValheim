@@ -361,6 +361,14 @@ namespace ModAIValheim.Companion
             // prioridade) e antes da guarda de follow — quando age, é ele o dono do movimento.
             UpdateHomeReturn(dt);
 
+            // Fase 2.18: QUALIDADE DE VIDA — seguir pelo portal (o jogador atravessou e ele vai
+            // atrás), puxar a carroça e descansar/dormir quando fica ocioso. Roda depois do
+            // trabalho/casa (que têm prioridade) e antes da guarda de follow: quando uma dessas
+            // camadas age, é ela a dona do movimento do frame.
+            UpdatePortalFollow(dt);
+            UpdateCart(dt);
+            UpdateRest(dt);
+
             // Fase 2.10 (#2/#5): guarda o passo do follow nativo (porta/barranco) — só quando a
             // coleta não reivindicou o frame.
             UpdateFollowSafety(dt);
@@ -1950,6 +1958,66 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
+        // Fase 2.18: qualidade de vida (portal, carroça, descanso/sono)
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Camada de <b>seguir pelo portal</b> (Fase 2.18, config <c>Portal/Ligado</c>).
+        ///
+        /// <para>
+        /// No Valheim 1.0.17 só um <c>Player</c> atravessa um <c>TeleportWorld</c>
+        /// (<c>TeleportWorld.Interact</c> → <c>Player.TeleportTo</c>); um NPC não tem como entrar no
+        /// portal. Então o companheiro faz o que um jogador faria a pé: <b>anda até o portal</b> e,
+        /// quando o teleporte do jogador termina, é levado para junto dele (o mesmo lugar do outro
+        /// lado) — é o "atravessar junto" do pedido. Quem implementa a máquina de estados é o
+        /// <see cref="CompanionPortalFollow"/>; aqui só existe o gancho e o dono do movimento
+        /// (<see cref="MovementOwner.Portal"/>).
+        /// </para>
+        ///
+        /// <para>
+        /// Não age quando há trabalho, coleta, viagem ao baú, alvo de combate ou carroça engatada:
+        /// o companheiro é um membro da equipe, não um passageiro. Também não roda no modo de
+        /// "voltar para casa" (<c>Casa/VoltarSePerdido</c>) — lá a intenção é justamente ficar.
+        /// </para>
+        /// </summary>
+        private void UpdatePortalFollow(float dt)
+        {
+            CompanionPortalFollow.Tick(this, dt);
+        }
+
+        /// <summary>
+        /// Camada da <b>carroça</b> (Fase 2.18, config <c>Carroca/Ligado</c>, comando
+        /// <c>modia_cart</c>).
+        ///
+        /// <para>
+        /// O companheiro anda até o engate da carroça (<c>Vagon.m_attachPoint</c>) e se prende a ela
+        /// pelo caminho do jogo (<c>Vagon.Interact</c>, o mesmo do jogador) — o
+        /// <c>ConfigurableJoint</c> que o jogo cria é quem faz a carroça vir atrás dele. Depois de
+        /// engatado ele volta a ser dirigido pelo follow nativo (é o que faz a carroça acompanhar
+        /// você). Quem implementa é o <see cref="CompanionCart"/>; o dono do frame enquanto ele anda
+        /// até o engate é <see cref="MovementOwner.Cart"/>.
+        /// </para>
+        /// </summary>
+        private void UpdateCart(float dt)
+        {
+            CompanionCart.Tick(this, dt);
+        }
+
+        /// <summary>
+        /// Camada de <b>descanso</b> (Fase 2.18, seção <c>[Descanso]</c>): o companheiro
+        /// <b>senta</b> perto de uma fogueira acesa (ou dentro da casa) quando fica ocioso e
+        /// <b>dorme</b> numa cama livre (de noite, ou quando você se deita) — recuperando vida e
+        /// resistência mais rápido e ganhando o descanso do jogo. Quem implementa a máquina de
+        /// estados é o <see cref="CompanionRest"/>; os donos do frame são
+        /// <see cref="MovementOwner.Rest"/> (sentado/andando até o fogo) e
+        /// <see cref="MovementOwner.Sleep"/> (dormindo/andando até a cama).
+        /// </summary>
+        private void UpdateRest(float dt)
+        {
+            CompanionRest.Tick(this, dt);
+        }
+
+        // ---------------------------------------------------------------------
         // Fase 2.10 (#6): bloqueio/parry
         // ---------------------------------------------------------------------
 
@@ -2709,6 +2777,91 @@ namespace ModAIValheim.Companion
             StopMoving();
         }
 
+        /// <summary>
+        /// Reivindica o <b>dono do movimento</b> do frame <b>sem dirigir o passo</b>: o companheiro
+        /// fica parado e a guarda de follow (<see cref="UpdateFollowSafety"/>) não mexe em nada.
+        /// É o que o descanso/sono usa enquanto ele está sentado ou deitado (Fase 2.18).
+        /// </summary>
+        internal void JobHold(MovementOwner owner)
+        {
+            _movementOwner = owner;
+            StopMoving();
+        }
+
+        /// <summary>
+        /// Move o companheiro <b>instantaneamente</b> para um ponto: posição/rotação do corpo, do
+        /// <c>Rigidbody</c> (sem velocidade sobrando) e do ZDO — o mesmo trio que o <c>Player</c>
+        /// ajusta no <c>UpdateTeleport</c> do jogo. Usado pelo seguir pelo portal (Fase 2.18) e
+        /// para deitar o companheiro na cama.
+        ///
+        /// <para>
+        /// <b>Não</b> é um <c>Player.TeleportTo</c>: o companheiro é um <see cref="Humanoid"/> e
+        /// <c>Character.TeleportTo</c> é vazio na base (o jogo só implementa no <c>Player</c>).
+        /// Como o <b>dano de queda do jogo é só para jogadores</b>
+        /// (<c>Character.UpdateGroundContact</c>: <c>IsPlayer() &amp;&amp; queda &gt; 4 m</c>), mover o
+        /// NPC na mão não o machuca. Também para o passo e reivindica o frame para o motor nativo
+        /// não dar um passo em direção à posição antiga neste tick.
+        /// </para>
+        /// </summary>
+        internal void JobTeleport(Vector3 position, Quaternion rotation, MovementOwner owner)
+        {
+            Character character = m_character;
+            if (character == null)
+            {
+                return;
+            }
+
+            character.transform.position = position;
+            character.transform.rotation = rotation;
+
+            if (character.m_body != null)
+            {
+                character.m_body.position = position;
+                character.m_body.linearVelocity = Vector3.zero;
+                character.m_body.angularVelocity = Vector3.zero;
+            }
+
+            if (m_nview != null && m_nview.IsValid() && m_nview.IsOwner())
+            {
+                m_nview.GetZDO().SetPosition(position);
+            }
+
+            JobHold(owner);
+        }
+
+        /// <summary>
+        /// Seguir pelo portal: leva o companheiro para junto do jogador do outro lado
+        /// (<see cref="MovementOwner.Portal"/>).
+        /// </summary>
+        internal void JobWarp(Vector3 position, Quaternion rotation)
+        {
+            JobTeleport(position, rotation, MovementOwner.Portal);
+        }
+
+        /// <summary>
+        /// Reafirma a posição do companheiro <b>sem</b> mexer no ZDO: é o "pin" do sono (Fase 2.18),
+        /// que roda a cada tick da IA para ele não escorregar da cama enquanto está deitado. O
+        /// <c>ZSyncTransform</c> do corpo é quem publica a posição na rede.
+        /// </summary>
+        internal void JobPin(Vector3 position, Quaternion rotation)
+        {
+            Character character = m_character;
+            if (character == null)
+            {
+                return;
+            }
+
+            character.transform.position = position;
+            character.transform.rotation = rotation;
+
+            if (character.m_body != null)
+            {
+                character.m_body.position = position;
+            }
+
+            JobHold(MovementOwner.Sleep);
+        }
+
         /// <summary>Vira o companheiro para um ponto (mira do arremesso, do golpe, do peixe).</summary>
         internal void JobLookAt(Vector3 point)
         {
@@ -2798,6 +2951,19 @@ namespace ModAIValheim.Companion
                        (CompanionInventory.IsOverWeight(inventory) || !inventory.HaveEmptySlot());
             }
         }
+
+        /// <summary>
+        /// O companheiro está <b>livre</b> para uma tarefa de tempo livre (descansar, dormir,
+        /// seguir pelo portal, engatar a carroça)? É o mesmo critério do modo contínuo da base
+        /// (Fase 2.17): sem trabalho, sem coleta, sem viagem ao baú, sem loot pendente e sem alvo
+        /// de combate. Fase 2.18.
+        /// </summary>
+        internal bool JobIsIdle =>
+            !CompanionJobQueue.HasJob &&
+            !CompanionHarvest.IsActive &&
+            !CompanionDeposit.TripActive &&
+            !CompanionLoot.HasWork &&
+            GetTargetCreature() == null;
 
         // ---------------------------------------------------------------------
         // Configuração de identidade / ajustes

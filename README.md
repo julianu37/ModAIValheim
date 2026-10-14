@@ -12,9 +12,11 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 > depois de dispensado (itens, equipamento, aparência e modo). Ele também **come sozinho**, tem
 > **resistência (stamina)** e **perícias que evoluem**, respeita um **teto de peso** (deposita no baú
 > e volta, com *tool keeper*), executa **trabalhos** (`modia_job`: caçar, pescar, cultivar, cozinhar,
-> fundir e **cuidar da base**) e agora tem uma **casa** (`modia_home`), onde **deposita, cuida da
+> fundir e **cuidar da base**) e tem uma **casa** (`modia_home`), onde **deposita, cuida da
 > base** (reparar construções, abastecer fogueiras, esvaziar colmeias e ordenar baús) e para onde
-> **volta quando se perde**. Ainda faltam **multiplayer**, **voz/IA** e **backend**.
+> **volta quando se perde**. Agora ele também **descansa e dorme** (fogueira/cama), **segue você
+> pelo portal** e **puxa a sua carroça** — a **qualidade de vida** da Fase 2.18. Ainda faltam
+> **multiplayer**, **voz/IA** e **backend**.
 
 ---
 
@@ -44,13 +46,15 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | `modia_farm <set\|clear\|info> [raio]` | Define a **zona de fazenda** do trabalho de cultivar no ponto onde você está (raio opcional) |
 | `modia_home <set\|clear\|info> [raio]` | Define a **casa/base** do companheiro no ponto onde você está (raio opcional) — ver [Base e casa](#base-e-casa-fase-217) |
 | `modia_basecare [on\|off]` | Liga/desliga o **modo contínuo** do cuidado da base (ele cuida da casa sozinho quando fica ocioso) |
-| `modia_stop` | Para a coleta, o trabalho e volta a seguir o jogador (também limpa o alvo de combate) |
+| `modia_rest <info\|sit\|sleep\|stop>` | **Descanso/sono** (Fase 2.18): manda ele **sentar no fogo**, **dormir na cama livre**, **levantar** ou mostra o estado — ver [Qualidade de vida](#qualidade-de-vida-fase-218) |
+| `modia_cart <info\|pull\|release>` | **Carroça** (Fase 2.18): manda ele **puxar** a carroça livre mais próxima, **soltar** ou mostra o estado |
+| `modia_stop` | Para a coleta, o trabalho, o descanso/sono e a carroça, e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
-| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito, ferramentas emprestadas, o **trabalho em andamento**, a **casa** e o **cuidado da base** do companheiro |
+| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito, ferramentas emprestadas, o **trabalho em andamento**, a **casa**, o **cuidado da base**, o **descanso/sono**, o **portal** e a **carroça** do companheiro |
 | `modia_deposit` | (console, F5) manda o companheiro levar a carga ao **baú** mais próximo agora |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
@@ -739,8 +743,8 @@ Dentro do raio da casa ele, **em ordem de prioridade**:
 > **Fora do núcleo (ficou de fora desta fase):** o **visual da zona da casa** (o anel no chão que a
 > referência desenha enquanto você ajusta) e o **painel de ajuste da casa** (`HomeZonePanel`) — aqui a
 > casa é definida por comando e confirmada pelo `modia_home info`; as **pilhas de recurso no chão**
-> (`UpkeepPiles`); **buscar combustível/insumos em baús**; a lista de itens por **categoria**; e o
-> **descanso/dormir na casa** (fica para a 2.18).
+> (`UpkeepPiles`); **buscar combustível/insumos em baús**; e a lista de itens por **categoria**.
+> O **descanso/dormir na casa** chegou na Fase 2.18 (abaixo).
 
 #### Leitura e HUD
 
@@ -751,6 +755,100 @@ Dentro do raio da casa ele, **em ordem de prioridade**:
 | `modia_job` sem argumento | o trabalho atual (ex.: `Cuidar da base (3, 1.2 min) — reparando Parede de madeira`) |
 | HUD | início, cada reparo/abastecimento/colmeia/arrumação e o encerramento |
 | log do BepInEx | cada passo relevante, deduplicado |
+
+### Qualidade de vida (Fase 2.18)
+
+Quatro coisas que fazem o companheiro parecer **gente**: ele **descansa no fogo**, **dorme na cama**,
+**atravessa o portal com você** e **puxa a sua carroça**. Nada disso atrapalha o resto — cada uma só
+age quando ele está **livre** (sem trabalho, coleta, depósito, loot ou combate) e com você por perto.
+
+#### Sentar no fogo e descansar
+
+Quando ele fica **ocioso** e você está a menos de `Descanso/RaioJogador` (12 m), ele **senta** para
+descansar se houver uma **fogueira acesa** num raio de `Descanso/RaioFogueira` (10 m) — ou se estiver
+**dentro da casa** (`modia_home set`). Sentado ele:
+
+- **recupera resistência mais rápido** (`Descanso/MultiplicadorStamina`, padrão **2×**, e sem o
+  atraso de regeneração);
+- **recupera vida** (`Descanso/TaxaCura`, padrão 3/s);
+- depois de `Descanso/TempoParaDescansar` (20 s) ganha o **DESCANSO** — o mesmo buff do jogo, com a
+  **duração vinda do conforto** do lugar (`m_baseTTL + (conforto − 1) × m_TTLPerComfortLevel`, com o
+  conforto calculado como para o jogador: cobertura + peças de conforto), que dá regeneração de
+  stamina, cura e **bônus de perícia** (`Descanso/BonusSkill`, padrão +0.5, o `m_raiseSkillModifier`
+  do `SE_Rested`).
+
+Se **você se afastar** (mais de 1,5× o `RaioJogador`), se aparecer **inimigo** num raio de 15 m, se a
+fogueira **apagar**, se ele **sair da casa** ou se ele **voltar a ter trabalho**, ele **levanta** e
+volta a te seguir na hora. Para mandar na mão: `modia_rest sit` (procura fogueira num raio maior e,
+sem fogueira, senta onde está se estiver na casa) e `modia_rest stop` para levantar.
+
+#### Dormir na cama
+
+Ele **dorme numa cama livre** (`Bed`) quando **anoitece** (`Descanso/DormirDeNoite`) ou quando
+**você se deita** (`Descanso/DormirQuandoVoceDorme`) — desde que haja uma cama num raio de
+`Descanso/RaioCama` (25 m). Dormindo, ele **fica na cama** (com a animação de deitar e o campo
+`inBed` no ZDO — é o que faz a **noite passar mais rápido** quando todos estão dormindo, como no
+jogo) e **acorda** quando **amanhece**, quando **você levanta**, se aparecer **inimigo**, se a cama
+sumir ou se você se afastar mais de `Descanso/DistanciaAcordar` (30 m). Ao levantar, ele sai **ao
+lado** da cama e fica com o **descanso** aplicado.
+
+> **A sua cama é sua.** Ele **nunca** usa a cama que é o **seu ponto de spawn atual** nem a cama de
+> outro jogador: para ele dormir, construa uma **segunda cama** (uma cama sem dono também serve).
+> Sem cama livre, ele apenas senta no fogo.
+
+```
+modia_rest            # estado: ocioso/descansando/dormindo, e o descanso que falta
+modia_rest sit        # manda sentar e descansar agora (fogueira acesa mais próxima, ou na casa)
+modia_rest sleep      # manda dormir agora na cama LIVRE mais próxima (mesmo de dia)
+modia_rest stop       # levanta e volta a seguir você
+```
+
+#### Seguir você pelo portal
+
+No Valheim quem atravessa um portal é o **jogador** — um NPC não tem como entrar nele. Então o
+companheiro faz o que um jogador faria **a pé**: quando você atravessa um portal, ele **anda até o
+portal** e, quando o seu teleporte **termina**, é levado para **junto de você** (do outro lado), em
+vez de ficar para trás. Funciona com **qualquer** teleporte seu (portal, morte, comando de console) e
+não entra em loop: é **uma viagem por teleporte**, e ele **não** é levado quando já está perto (o
+mesmo lado da base).
+
+Ele **não** segue se estiver **ocupado** — com um trabalho, coleta, carga para depositar, loot,
+alvo de combate ou puxando a carroça. Nesse caso ele fica onde está; se quiser que ele volte sozinho,
+ligue o `Casa/VoltarSePerdido` da Fase 2.17. Config: `Portal/Ligado`, `Portal/RaioPortal`,
+`Portal/AlcancePortal`, `Portal/TempoMaximo`.
+
+#### Puxar a sua carroça
+
+```
+modia_cart pull       # ele anda até o engate da carroça (Vagon) livre mais próxima e puxa
+modia_cart release    # solta a carroça
+modia_cart            # estado: nenhuma / indo puxar / puxando
+```
+
+Ele **anda até o engate** da carroça (`Vagon`) e se **prende nela pelo caminho do jogo**
+(`Vagon.Interact` → o `ConfigurableJoint` que o próprio Valheim cria quando **você** puxa), então a
+carroça vem **atrás dele** enquanto ele te segue — subindo a ladeira que você subiu. Se a carroça
+ficar presa demais a junta arrebenta e ele solta sozinho (e volta a te seguir). Ele **nunca engata
+sozinho** e a **carroça não atravessa portal** com você.
+
+> **Fora do núcleo (ficou de fora desta fase):** o **menu radial** da referência
+> (`CompanionRadialMenu`) — aqui o pedido é por comando (`modia_rest`, `modia_cart`); o **engate
+> automático** da carroça e o **transporte dela por portal**; o `Vagon` **empurrado** (só puxa, pelo
+> joint do jogo); o **"stay awake"** e a **cama reivindicada no ZDO da cama** (aqui a cama é escolhida
+> a cada descanso); o **roster/shrine/respawn** da referência (`MHR_Roster`, `MHR_Shrine`,
+> `MHR_RespawnTracker`, `CompanionTombstoneResurrect`); os **saltos** (`MHR_Jump`); a **segurança na
+> água** (`WaterSafety`); a **tocha** (`TorchOpener`); e o **seguir por teleporte quando ele fica
+> preso** (o `FollowStuckTeleport` — aqui só o portal do jogador puxa o companheiro).
+
+#### Leitura e HUD
+
+| Onde | O que mostra |
+|---|---|
+| `modia_stats` (F5) | `Descanso: sentado descansando, descansado (245s).`, `Portal: ligado (ele atravessa com voce).` e `Carroca: puxando a carroca.` |
+| `modia_rest` sem argumento | o estado do descanso/sono + o do portal |
+| `modia_cart` sem argumento | o estado da carroça |
+| HUD | `Companheiro descansando` / `dormindo` / `descansado (…s)` e `atravessou o portal com voce` / `puxando a carroca` |
+| log do BepInEx | cada decisão relevante (sentou, levantou, dormiu, acordou, atravessou, engatou, soltou) |
 
 ### Configuração (seções do `.cfg`)
 
@@ -782,6 +880,11 @@ Dentro do raio da casa ele, **em ordem de prioridade**:
 - **Base** — `Ligado`, `Continuo`, `RaioBase`, `IntervaloVarredura`, `Reparar`, `RepararAbaixo`,
   `FornecerMartelo`, `MarteloPrefab`, `AbastecerFogueiras`, `FogueiraNivel`, `Colmeias`,
   `ColmeiaMinima`, `OrdenarBaus`, `OrdenarItens`, `OrdenarPorViagem`, `JuntarPilhas`
+- **Descanso** — `Ligado`, `SentarDescansar`, `RaioFogueira`, `RaioJogador`, `DormirNaCama`,
+  `DormirDeNoite`, `DormirQuandoVoceDorme`, `RaioCama`, `DistanciaAcordar`, `MultiplicadorStamina`,
+  `TaxaCura`, `TempoParaDescansar`, `BonusSkill`
+- **Portal** — `Ligado`, `RaioPortal`, `AlcancePortal`, `TempoMaximo`
+- **Carroca** — `Ligado`, `Raio`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -801,7 +904,7 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu, Home, BaseCare...
+│  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu, Home, BaseCare, Rest, PortalFollow, Cart...
 │  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob, FishJob, FarmJob (+ FarmZone/FarmCatalog), CookJob, SmeltJob, UpkeepJob (+ BaseCareConfig), JobStations + patches do flutuador
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
@@ -1149,6 +1252,66 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 9. **Não quebrou nada:** com o trabalho rodando, `modia_job hunt`, `modia_gather wood` ou um ataque
    **pausam** o cuidado (o log avisa) e ele retoma depois; `Jobs/Ligado = false` ou
    `Base/Ligado = false` fazem o `modia_job upkeep` recusar com o motivo.
+
+### Teste rápido da qualidade de vida (Fase 2.18)
+
+1. **Sentar no fogo:** fique **parado** perto de uma fogueira **acesa** com o companheiro do lado e
+   sem nada no comando (sem `modia_job`, sem coleta) → em alguns segundos o log mostra
+   `Descanso: o companheiro sentou para descansar (ocioso perto do fogo)` e o HUD
+   `Companheiro descansando`. Ele fica **virado para o fogo** e (com o Animator do corpo do jogador) na
+   **animação de sentar**. `modia_stats` → `Descanso: sentado descansando, sem descanso`.
+   - Depois de ~20 s (`Descanso/TempoParaDescansar`) o log mostra
+     `Descanso: o companheiro esta DESCANSADO por N s (conforto X): stamina x2, cura x1,5, skill +0,5`
+     e o `modia_stats` passa a `descansado (N s)`.
+   - **Levanta sozinho:** ande **para longe** (mais de ~18 m) ou ponha um inimigo perto → o log mostra
+     `Descanso: o companheiro levantou (voce se afastou)` (ou `inimigo por perto`) e ele volta a te
+     seguir. Se a fogueira **apagar**, o motivo é `a fogueira apagou`.
+   - Sem fogueira e **sem** casa definida ele **não** senta (é o esperado); com a casa definida
+     (`modia_home set`), ele senta mesmo sem fogueira (`dentro da casa`).
+   - `modia_rest sit` manda sentar **agora** (procura fogueira num raio maior) e `modia_rest stop`
+     levanta na hora.
+2. **Dormir na cama:** construa **duas** camas dentro/ao lado da casa e durma na **sua** (deixe a
+   outra **sem dono** ou com você, mas **não** como seu ponto de spawn) → ao **anoitecer**
+   (`Descanso/DormirDeNoite`) o log mostra
+   `Descanso: indo dormir na cama 'Bed' (e noite e ha uma cama livre, N m)` e depois
+   `Descanso: o companheiro se deitou na cama 'Bed'` + HUD `Companheiro dormindo`. Ele fica **deitado
+   na cama** (animação de deitar) e **a noite passa** como quando você dorme.
+   - **Acorda** ao **amanhecer** (`acordou (amanheceu)`), ou se você levantar antes
+     (`acordou (voce saiu da cama)` quando ele foi dormir junto com você), ou se aparecer inimigo, ou
+     se você se afastar mais de `Descanso/DistanciaAcordar` (30 m). Ao levantar ele sai **ao lado** da
+     cama e fica com o descanso aplicado (`Companheiro descansado (…s)`).
+   - **A sua cama é sua:** com **só** a sua cama (a que é o seu ponto de spawn), ele **não** dorme — o
+     log avisa que não há cama livre. `modia_rest sleep` responde
+     `Nao ha cama LIVRE por perto (a sua cama ... nao conta: construa uma segunda)`.
+   - `modia_rest sleep` manda dormir **agora**, mesmo de dia (o sono dura até
+     `Descanso/DistanciaAcordar`/tempo do pedido); `modia_rest stop` (ou `modia_stop`) levanta.
+3. **Portal:** ponha **dois portais** ligados (com o mesmo nome) longe um do outro (e o companheiro
+   do lado de **um** deles) → atravesse o portal. Durante o teleporte o log mostra
+   `Portal: voce esta atravessando um portal; o companheiro vai atras.`; quando você chegar do outro
+   lado, `Portal: o companheiro atravessou com voce e chegou em X, Z` + HUD
+   `Companheiro atravessou o portal com voce` — e ele **aparece do seu lado**.
+   - **Não entra em loop:** teleporte de novo para voltar → ele atravessa de novo (uma viagem por
+     teleporte). Se o outro lado estiver a menos de ~8 m (portal curto), ele **não** é levado (só
+     anda).
+   - **Ocupado não segue:** com `modia_job hunt` (ou coleta) rodando, atravesse o portal → o log
+     avisa `voce atravessou um portal, mas o companheiro esta ocupado ... ele fica onde esta`.
+   - `modia_rest` (sem argumento) mostra `Portal: ligado (ele atravessa com voce).`.
+4. **Carroça:** construa uma **carroça** (banco de trabalho: `Cart`), deixe-a **livre** perto do
+   companheiro e use `modia_cart pull` → o log mostra `Carroca: indo ate o engate de 'Cart' (N m)`,
+   ele **anda até o engate**, se **prende** nela e o log confirma
+   `Carroca: o companheiro esta puxando 'Cart' e vai leva-la seguindo voce` + HUD
+   `Companheiro puxando a carroca`. Agora **ande** (o companheiro te segue e a **carroça vem atrás**,
+   com a linha/aresta do jogo aparecendo).
+   - `modia_cart release` (ou `modia_stop`) solta: o log mostra
+     `Carroca: soltei a carroca (comando modia_cart release)` e ele volta a te seguir sozinho.
+   - Se a carroça ficar **presa demais** (você passar por um lugar apertado), a junta arrebenta e o
+     log avisa `Carroca: a carroca se soltou (junta arrebentou ou ela ficou presa)`.
+   - Sem carroça no raio (`Carroca/Raio`): `Nao achei carroca livre num raio de 25 m`.
+   - `modia_stats` → `Carroca: puxando a carroca.`
+5. **Não quebrou nada:** com o companheiro **sentado/dormindo/puxando**, `modia_gather wood` ou
+   `modia_job hunt` **levantam** ele (o descanso não sobrevive a um trabalho); `modia_stop` levanta e
+   solta a carroça; dispensar (H) e a morte dele encerram o sono (sem deixar a gravidade desligada) e
+   soltam a carroça; e o follow/coleta/combate/jobs/casa continuam funcionando como antes.
 
 ---
 

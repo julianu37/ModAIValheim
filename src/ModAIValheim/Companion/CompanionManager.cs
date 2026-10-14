@@ -149,6 +149,11 @@ namespace ModAIValheim.Companion
             // escolhido por comando volta ao padrão do .cfg no próximo carregamento).
             CompanionHome.Shutdown();
             CompanionBaseCare.Shutdown();
+
+            // Fase 2.18: qualidade de vida (descanso/sono, seguir pelo portal e carroça).
+            CompanionRest.Shutdown();
+            CompanionPortalFollow.Shutdown();
+            CompanionCart.Shutdown();
         }
 
         private static void Spawn()
@@ -265,6 +270,11 @@ namespace ModAIValheim.Companion
             // Fase 2.16: um trabalho (caçar/pescar) morre com ele — e o encerramento devolve a vara
             // para as costas ANTES da foto, para o companheiro não voltar com ela na mão.
             CompanionJobQueue.Cancel(companion, "companheiro dispensado");
+
+            // Fase 2.18: o descanso e a carroça também acabam com ele (a carroça volta a ficar livre
+            // e o companheiro não volta do snapshot "dormindo" nem preso a uma junta que não existe).
+            CompanionRest.Forget("companheiro dispensado");
+            CompanionCart.Release(companion, "companheiro dispensado");
 
             // Fase 2.7: fotografa o companheiro ANTES de destruí-lo (itens, equipamento,
             // aparência, modo) para o próximo F1 devolvê-lo igual.
@@ -391,6 +401,10 @@ namespace ModAIValheim.Companion
                 // Fase 2.16: o trabalho (caçar/pescar) morre com ele — e o encerramento guarda a
                 // vara antes da foto (ele não volta com ela na mão).
                 CompanionJobQueue.Cancel(dying, "companheiro morreu");
+
+                // Fase 2.18: sono e carroça não sobrevivem à morte (a carroça fica livre no mundo).
+                CompanionRest.Forget("companheiro morreu");
+                CompanionCart.Release(dying, "companheiro morreu");
 
                 // Fase 2.13: a perda de perícia por morte entra ANTES do snapshot — o companheiro
                 // guardado volta com o que sobrou, como um jogador que morreu.

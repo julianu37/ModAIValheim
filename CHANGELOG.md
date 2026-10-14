@@ -3,6 +3,86 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.6] — 2026-10-14
+
+### Adicionado
+- **QUALIDADE DE VIDA** (Fase 2.18, o último bloco do SP): o companheiro **descansa**, **dorme**,
+  **segue você pelo portal** e **puxa a sua carroça**.
+  - **DESCANSO E SONO (`Companion/CompanionRest.cs` + seção `[Descanso]`).** Quando ele fica
+    **ocioso** (sem trabalho, coleta, viagem ao baú, loot nem alvo de combate) e você está perto
+    (`Descanso/RaioJogador`), ele **senta** para descansar perto de uma **fogueira acesa**
+    (`Fireplace.IsBurning`) — ou **dentro da casa** (`modia_home set`) — e **dorme numa cama
+    livre** (`Bed`) de noite (`Descanso/DormirDeNoite`) ou quando **você se deita**
+    (`Descanso/DormirQuandoVoceDorme`), ficando lá até amanhecer, até você levantar, até aparecer
+    inimigo, até a cama sumir ou até você se afastar (`Descanso/DistanciaAcordar`).
+    - **A cama do jogador é do jogador:** ele nunca usa a cama que é o **seu ponto de spawn atual**
+      (`Bed.IsCurrent`) nem a de outro jogador (`Bed.GetOwner`) — para ele dormir, construa uma
+      **segunda cama**. Sem cama livre, ele só senta no fogo.
+    - **Animação pelo `ZSyncAnimation` do corpo** (o mesmo componente que o `Player` usa):
+      `SetBool("emote_sit", true)` para sentar e `SetBool("attach_bed", true)` para deitar — os dois
+      **sincronizados pelo ZDO** e conferidos com `HasParameter` (sem o parâmetro, ele descansa sem a
+      animação e o log avisa uma vez).
+    - **Sono pelo caminho do `Player.AttachStart`/`AttachStop`** (que é **vazio** na base para um
+      NPC): posição do `Bed.m_spawnPoint`, gravidade desligada, colisão ignorada com os colliders da
+      cama, `ZDOVars.s_inBed` no ZDO (é o que faz a **noite passar mais rápido** quando todos estão na
+      cama) e `attach_bed` na animação — desfeito inteiro ao acordar, quando ele levanta **ao lado**
+      da cama.
+    - **Descanso (o "SE_Rested" do companheiro):** depois do aquecimento
+      (`Descanso/TempoParaDescansar`) ele ganha o **descanso** com a **duração do jogo**
+      (`m_baseTTL + (conforto − 1) × m_TTLPerComfortLevel`, com o **conforto** calculado pelo caminho
+      do jogador: `Cover.GetCoverForPoint` + `SE_Rested.CalculateComfortLevel`), que dá **regeneração
+      de stamina** (`Descanso/MultiplicadorStamina` enquanto descansa; depois o
+      `m_staminaRegenMultiplier` do `SE_Rested`), **cura por segundo** (`Descanso/TaxaCura`) e
+      **bônus de perícia** (`Descanso/BonusSkill`, o `m_raiseSkillModifier` do jogo). Os números do
+      `SE_Rested` são lidos **do jogo** (`ObjectDB.GetStatusEffect`), com valores de reserva se o
+      efeito não existir.
+    - **Console:** `modia_rest info|sit|sleep|stop` (sentar/dormir/levantar **agora**, mesmo de dia,
+      e o estado). Sozinho ele já faz tudo isso quando fica ocioso.
+  - **SEGUIR PELO PORTAL (`Companion/CompanionPortalFollow.cs` + seção `[Portal]`).** No 1.0.17 quem
+    atravessa um portal é o `Player` (`TeleportWorld.Interact` → `Player.TeleportTo`) e
+    `Character.TeleportTo` é **vazio** na base do jogo: o companheiro (um `Humanoid`) não tem como
+    entrar no portal e ficava para trás. Agora, quando você atravessa, ele **anda até o portal** e,
+    quando o seu teleporte **termina**, é levado para **junto de você** — o "atravessar junto" do
+    pedido. A detecção é por **observação do estado público do jogador** (`Player.IsTeleporting`),
+    **sem patch Harmony nenhum**; a viagem é **uma só por teleporte** (nada de loop), ele **não** é
+    levado quando já está perto (portais curtos, o mesmo lado da base) e **não** segue se estiver
+    ocupado (trabalho, coleta, depósito, loot, combate ou carroça) — aí quem resolve é o
+    `Casa/VoltarSePerdido` da 2.17. Vale para qualquer teleporte seu (portal, morte, comando de
+    console). `Portal/RaioPortal`, `Portal/AlcancePortal` e `Portal/TempoMaximo` ajustam a procura.
+  - **CARROÇA (`Companion/CompanionCart.cs` + seção `[Carroca]`).** `modia_cart pull` faz o
+    companheiro **andar até o engate** da carroça (`Vagon`) livre mais próxima
+    (`m_attachPoint.position - m_attachOffset`) e se **prender nela pelo caminho do jogo**
+    (`Vagon.Interact` → o `ConfigurableJoint` do `Vagon.AttachTo`, com o `m_playerExtraPullMass`):
+    a carroça vem atrás dele enquanto ele **te segue**, exatamente como quando **você** puxa.
+    `modia_cart release` solta; `modia_cart` mostra o estado. Depois de engatado, quem dirige é o
+    follow nativo (a camada só **vigia**: carroça destruída ou junta arrebentada → ele solta e volta
+    a seguir). Ele **nunca engata sozinho** e a carroça **não** atravessa portal com você.
+  - **Comum:** três **donos novos do movimento por frame** (`MovementOwner.Rest`, `Sleep`, `Portal` e
+    `Cart`) — cada camada só reivindica o frame quando de fato dirige o companheiro; as varreduras
+    (fogueira, cama, inimigo, portal, carroça) têm **intervalo** e buffers reaproveitados (nada por
+    frame; a de inimigo é cacheada por 0,5 s); o `modia_stats`, o `modia_rest` e o `modia_cart` ganham
+    as linhas de estado; e um `modia_stop` **levanta** o companheiro do descanso/sono e **solta** a
+    carroça.
+
+### Alterado
+- **Console:** são novos o `modia_rest <info|sit|sleep|stop>` e o `modia_cart <info|pull|release>`;
+  o `modia_stop` passou a encerrar também o descanso/sono e a soltar a carroça; o `modia_stats`
+  passou a mostrar `Descanso`, `Portal` e `Carroca`.
+- **Config:** novas seções — `[Descanso]` (`Ligado`, `SentarDescansar`, `RaioFogueira`,
+  `RaioJogador`, `DormirNaCama`, `DormirDeNoite`, `DormirQuandoVoceDorme`, `RaioCama`,
+  `DistanciaAcordar`, `MultiplicadorStamina`, `TaxaCura`, `TempoParaDescansar`, `BonusSkill`),
+  `[Portal]` (`Ligado`, `RaioPortal`, `AlcancePortal`, `TempoMaximo`) e `[Carroca]` (`Ligado`,
+  `Raio`).
+- **`CompanionStamina`:** nova propriedade `IsResting` (escrita pelo descanso): sem o atraso de
+  regeneração e com o multiplicador de descanso em `RegenPerSecond`.
+- **`CompanionSkills`:** o ganho de perícia (`RaiseSkill`) passa a multiplicar por
+  `CompanionRest.SkillGainMultiplier` (o bônus de quem está descansado).
+- **`CompanionManager`:** dismiss/morte agora encerram o descanso/sono e soltam a carroça antes do
+  snapshot (o companheiro não volta "dormindo" nem preso a uma junta que não existe).
+
+### Corrigido
+- **Nada nesta versão** (as correções de comportamento estão descritas acima, dentro das features).
+
 ## [0.4.5] — 2026-10-14
 
 ### Adicionado

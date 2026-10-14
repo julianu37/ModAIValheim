@@ -22,6 +22,8 @@ namespace ModAIValheim.Companion
     ///   <item><description><c>modia_farm &lt;set|clear|info&gt; [raio]</c> — zona de fazenda do trabalho de cultivar (Fase 2.16b).</description></item>
     ///   <item><description><c>modia_home &lt;set|clear|info&gt; [raio]</c> — zona da casa/base do companheiro (Fase 2.17).</description></item>
     ///   <item><description><c>modia_basecare [on|off]</c> — modo contínuo do cuidado da base (Fase 2.17).</description></item>
+    ///   <item><description><c>modia_rest [info|sit|sleep|stop]</c> — descanso/sono do companheiro (Fase 2.18).</description></item>
+    ///   <item><description><c>modia_cart [info|pull|release]</c> — puxar/soltar a carroça do jogador (Fase 2.18).</description></item>
     ///   <item><description><c>modia_stats</c> — comidas ativas, resistência (stamina) e perícias do companheiro (Fase 2.13).</description></item>
     /// </list>
     ///
@@ -56,11 +58,13 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new FarmCommand());
             manager.AddConsoleCommand(new HomeCommand());
             manager.AddConsoleCommand(new BaseCareCommand());
+            manager.AddConsoleCommand(new RestCommand());
+            manager.AddConsoleCommand(new CartCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
                 "modia_mode, modia_gather, modia_stop, modia_state, modia_stats, modia_deposit, " +
-                "modia_job, modia_farm, modia_home, modia_basecare.");
+                "modia_job, modia_farm, modia_home, modia_basecare, modia_rest, modia_cart.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -400,6 +404,11 @@ namespace ModAIValheim.Companion
                 // sai junto (senão ele voltaria a cuidar da casa sozinho segundos depois).
                 bool stoppedContinuous = CompanionBaseCare.SuspendForStopCommand("comando modia_stop");
 
+                // Fase 2.18: "parar" também levanta o companheiro do descanso/sono e solta a
+                // carroça (senão ele continuaria dormindo ou puxando a carroça depois do comando).
+                bool wasResting = Current != null && CompanionRest.Stop(Current, "comando modia_stop");
+                bool wasPulling = Current != null && CompanionCart.Release(Current, "comando modia_stop");
+
                 CompanionHarvest.Stop("comando modia_stop");
                 CompanionJobQueue.Cancel(Current, "comando modia_stop");
 
@@ -414,6 +423,16 @@ namespace ModAIValheim.Companion
                         context,
                         "[ModIA] Modo continuo do cuidado da base DESLIGADO nesta sessao " +
                         "(modia_basecare on para religar).");
+                }
+
+                if (wasResting)
+                {
+                    Report(context, "[ModIA] Ele levantou do descanso/da cama.");
+                }
+
+                if (wasPulling)
+                {
+                    Report(context, "[ModIA] Ele soltou a carroca.");
                 }
 
                 if (wasHarvesting)
@@ -571,6 +590,11 @@ namespace ModAIValheim.Companion
                 // Fase 2.17: a casa e o cuidado da base.
                 Report(context, $"[ModIA] Casa: {CompanionHome.Describe()}.");
                 Report(context, $"[ModIA] Cuidado da base: {CompanionBaseCare.Describe()}.");
+
+                // Fase 2.18: qualidade de vida.
+                Report(context, $"[ModIA] Descanso: {CompanionRest.Describe()}.");
+                Report(context, $"[ModIA] Portal: {CompanionPortalFollow.Describe()}.");
+                Report(context, $"[ModIA] Carroca: {CompanionCart.Describe()}.");
             }
 
             public override void Run(string[] args)
@@ -1120,6 +1144,183 @@ namespace ModAIValheim.Companion
                         context,
                         "[ModIA] O modo continuo precisa de uma casa: use modia_home set.");
                 }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_rest [info|sit|sleep|stop]
+        // ---------------------------------------------------------------------
+
+        private sealed class RestCommand : ConsoleCommand
+        {
+            public override string Name => "modia_rest";
+
+            public override string Help =>
+                "Descanso e sono do companheiro (Fase 2.18). Uso: modia_rest <info|sit|sleep|stop>. " +
+                "sit = senta e descansa na fogueira acesa mais proxima (ou onde esta, dentro da casa); " +
+                "sleep = vai dormir na cama LIVRE mais proxima (a sua cama, que e o seu ponto de " +
+                "spawn, nao conta: construa uma segunda); stop = levanta e volta a seguir voce. " +
+                "Sem argumento mostra o estado. Sozinho ele ja faz isso quando fica ocioso " +
+                "(secao [Descanso] do .cfg).";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                string action = args != null && args.Length > 0 && args[0] != null
+                    ? args[0].Trim().ToLowerInvariant()
+                    : "info";
+
+                switch (action)
+                {
+                    case "sit":
+                    case "sentar":
+                    case "descansar":
+                        Sit(context);
+                        return;
+
+                    case "sleep":
+                    case "dormir":
+                    case "cama":
+                        Sleep(context);
+                        return;
+
+                    case "stop":
+                    case "levantar":
+                    case "parar":
+                        Stop(context);
+                        return;
+
+                    default:
+                        Info(context);
+                        return;
+                }
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+
+            private static void Sit(Terminal context)
+            {
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                if (CompanionRest.DirectSit(Current, out string error))
+                {
+                    Report(context, "[ModIA] Descanso: ele vai sentar e descansar.");
+                    return;
+                }
+
+                Report(context, error);
+            }
+
+            private static void Sleep(Terminal context)
+            {
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                if (CompanionRest.DirectSleep(Current, out string error))
+                {
+                    Report(context, "[ModIA] Descanso: ele vai dormir na cama livre mais proxima.");
+                    return;
+                }
+
+                Report(context, error);
+            }
+
+            private static void Stop(Terminal context)
+            {
+                if (Current != null && CompanionRest.Stop(Current, "comando modia_rest stop"))
+                {
+                    Report(context, "[ModIA] Descanso: ele levantou e voltou a seguir voce.");
+                    return;
+                }
+
+                Report(context, "[ModIA] O companheiro nao estava descansando.");
+            }
+
+            private static void Info(Terminal context)
+            {
+                Report(context, $"[ModIA] Descanso: {CompanionRest.Describe()}.");
+                Report(context, $"[ModIA] Portal: {CompanionPortalFollow.Describe()}.");
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_cart [info|pull|release]
+        // ---------------------------------------------------------------------
+
+        private sealed class CartCommand : ConsoleCommand
+        {
+            public override string Name => "modia_cart";
+
+            public override string Help =>
+                "Carroca do companheiro (Fase 2.18). Uso: modia_cart <info|pull|release>. " +
+                "pull = ele anda ate o engate da carroca (Vagon) livre mais proxima e se prende nela " +
+                "pelo caminho do jogo (a carroca vem atras dele enquanto ele te segue, como quando " +
+                "VOCE puxa); release = solta a carroca; info = mostra o estado. Ele nunca engata " +
+                "sozinho, e a carroca NAO atravessa portal com voce.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                string action = args != null && args.Length > 0 && args[0] != null
+                    ? args[0].Trim().ToLowerInvariant()
+                    : "info";
+
+                switch (action)
+                {
+                    case "pull":
+                    case "puxar":
+                    case "engatar":
+                        Pull(context);
+                        return;
+
+                    case "release":
+                    case "soltar":
+                    case "largar":
+                        Release(context);
+                        return;
+
+                    default:
+                        Report(context, $"[ModIA] Carroca: {CompanionCart.Describe()}.");
+                        return;
+                }
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+
+            private static void Pull(Terminal context)
+            {
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                if (CompanionCart.Pull(Current, out string error))
+                {
+                    Report(context, "[ModIA] Carroca: ele esta indo puxar a carroca.");
+                    return;
+                }
+
+                Report(context, error);
+            }
+
+            private static void Release(Terminal context)
+            {
+                if (Current != null && CompanionCart.Release(Current, "comando modia_cart release"))
+                {
+                    Report(context, "[ModIA] Carroca: solta; ele voltou a seguir voce.");
+                    return;
+                }
+
+                Report(context, "[ModIA] O companheiro nao estava puxando carroca nenhuma.");
             }
         }
     }

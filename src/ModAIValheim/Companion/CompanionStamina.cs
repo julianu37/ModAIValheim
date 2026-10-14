@@ -69,6 +69,13 @@ namespace ModAIValheim.Companion
         /// <summary>Stamina atual do companheiro.</summary>
         internal float Stamina { get; private set; }
 
+        /// <summary>
+        /// O companheiro está <b>descansando</b> (sentado no fogo ou dormindo na cama — Fase 2.18).
+        /// Quem escreve é o <see cref="CompanionRest"/>; aqui isso vale regeneração acelerada e
+        /// nenhum atraso de regeneração (ninguém cansa descansando).
+        /// </summary>
+        internal bool IsResting { get; set; }
+
         /// <summary>Stamina ligada (config <c>Resistencia/StaminaLigada</c>).</summary>
         internal static bool Enabled => _enabled == null || _enabled.Value;
 
@@ -241,7 +248,16 @@ namespace ModAIValheim.Companion
             bool draining = ApplyMovementDrain(dt);
             if (!draining)
             {
-                _regenDelayTimer = Mathf.Max(0f, _regenDelayTimer - dt);
+                if (IsResting)
+                {
+                    // Descansando não há atraso: a stamina volta já no primeiro tick (Fase 2.18).
+                    _regenDelayTimer = 0f;
+                }
+                else
+                {
+                    _regenDelayTimer = Mathf.Max(0f, _regenDelayTimer - dt);
+                }
+
                 if (_regenDelayTimer <= 0f && Stamina < max)
                 {
                     Stamina = Mathf.Min(max, Stamina + RegenPerSecond() * dt);
@@ -305,6 +321,10 @@ namespace ModAIValheim.Companion
 
             // Mesma forma do jogador: quanto mais vazio, mais rápido enche.
             rate *= 1f + (1f - GetStaminaPercentage());
+
+            // Fase 2.18: descansar (ou estar descansado) acelera a recuperação, como o SE_Rested
+            // do jogador.
+            rate *= CompanionRest.StaminaRegenMultiplier;
 
             SEMan seman = _character != null ? _character.GetSEMan() : null;
             if (seman != null)

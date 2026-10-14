@@ -139,3 +139,32 @@ SOFTWARE.
 >   máquina de estados do `CompanionJob`, ao "dono único do movimento por frame"
 >   (`MovementOwner.Upkeep`), ao depósito da Fase 2.14 e às seções de config em PT-BR), sem cópia de
 >   arquivo.
+> - **Fase 2.18 (v0.4.6)** — a **qualidade de vida** segue a lógica de
+>   `src/Companions/Companion/CompanionRest.cs` (as máquinas de <c>DirectSit</c>/<c>DirectSleep</c>/
+>   <c>BeginSleep</c>/<c>FinalizeSleep</c>/<c>StopSleeping</c>/<c>StopSitting</c>/
+>   <c>UpdateSitting</c>/<c>UpdateSleeping</c>, a procura de fogueira acesa em
+>   <c>FindNearbyFire</c> — <c>Fireplace.IsBurning</c> + <c>EffectArea</c> de calor —, a cama
+>   <b>livre</b> de <c>TryClaimBedIfNeeded</c>/<c>FindUnclaimedBedNear</c>/<c>MHR_BedOwnerOk</c>/
+>   <c>MHR_BedIsMine</c> — nunca a cama que é o ponto de spawn do dono —, o <c>PinToBed</c> com
+>   gravidade desligada e colisão ignorada, o <c>SetBool("emote_sit")</c>/<c>SetBool("attach_bed")</c>
+>   no <c>ZSyncAnimation</c> e o <c>ZDOVars.s_inBed</c>), de
+>   `src/Companions/Companion/CompanionRestedBuff.cs` (o descanso com aquecimento — <c>StartResting</c>/
+>   <c>StopResting</c>/<c>ApplyRestedBuff</c> —, os bônus lidos do <c>SE_Rested</c> via
+>   <c>ObjectDB.GetStatusEffect</c> — <c>m_baseTTL</c>, <c>m_TTLPerComfortLevel</c>,
+>   <c>m_healthRegenMultiplier</c>, <c>m_staminaRegenMultiplier</c>, <c>m_raiseSkillModifier</c> — e o
+>   conforto por <c>Cover.GetCoverForPoint</c> + <c>SE_Rested.CalculateComfortLevel</c>), de
+>   `src/Companions/Patches/PortalPatches.cs` (seguir pelo portal: enfileirar os companheiros em
+>   follow quando o jogador teleporta e "warpar" para o ponto de chegada —
+>   <c>WarpCompanion</c>: posição no ZDO + <c>transform</c> + <c>Rigidbody</c> +
+>   <c>ZoneSystem.FindFloor</c>) e de `src/Companions/AI/CompanionAI.cs` +
+>   `src/Companions/UI/CompanionInteract.cs` (a carroça: <c>SetPendingCart</c>/<c>CancelPendingCart</c>
+>   e o passo <c>PendingCartAttach</c>, e o <c>DirectCart</c> que usa a carroça <b>livre</b> mais
+>   próxima e solta quando já está presa — <c>m_attachPoint.position - m_attachOffset</c>,
+>   <c>Vagon.Interact</c>, <c>IsAttached</c>). No ModIA a detecção do portal é por
+>   <b>observação do estado público do jogador</b> (<c>Player.IsTeleporting</c>, <b>sem patch
+>   Harmony</b>), o descanso é um estado do próprio mod (sem criar <c>StatusEffect</c>) e a
+>   implementação é própria (`CompanionRest`/`CompanionPortalFollow`/`CompanionCart` + as camadas
+>   <c>CompanionAI.UpdateRest</c>/<c>UpdatePortalFollow</c>/<c>UpdateCart</c>, adaptadas ao modelo de
+>   camadas, ao "dono único do movimento por frame"
+>   (`MovementOwner.Rest`/`Sleep`/`Portal`/`Cart`), ao `CompanionStamina`/`CompanionSkills` da Fase
+>   2.13 e às seções de config em PT-BR), sem cópia de arquivo.

@@ -66,6 +66,12 @@ namespace ModAIValheim
     /// junta pilhas parciais). O MODO CONTÍNUO (`modia_basecare on|off`, `Base/Continuo`) faz ele
     /// retomar o cuidado da casa sozinho quando fica ocioso, e `Casa/VoltarSePerdido` o traz de
     /// volta para a base quando ele fica longe demais do jogador.
+    /// Fase 2.18: QUALIDADE DE VIDA — o companheiro **senta e descansa** perto da fogueira acesa (ou
+    /// dentro da casa) quando fica ocioso e **dorme numa cama livre** de noite ou quando você se
+    /// deita (`Companion/CompanionRest.cs`, seção `[Descanso]`), **segue você pelo portal**
+    /// (`Companion/CompanionPortalFollow.cs`: ele anda até o portal e é levado para junto de você
+    /// quando o seu teleporte termina) e **puxa a sua carroça**
+    /// (`Companion/CompanionCart.cs`, `modia_cart pull|release`).
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -73,7 +79,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.5";
+        public const string PluginVersion = "0.4.6";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -222,6 +228,27 @@ namespace ModAIValheim
 
         // Menu do mod (Fase 2.6b).
         private ConfigEntry<KeyCode> _menuKey;
+
+        // Qualidade de vida (Fase 2.18): descanso/sono, seguir pelo portal e carroça.
+        private ConfigEntry<bool> _restEnabled;
+        private ConfigEntry<bool> _restSit;
+        private ConfigEntry<float> _restFireRadius;
+        private ConfigEntry<float> _restPlayerRadius;
+        private ConfigEntry<bool> _restSleepInBed;
+        private ConfigEntry<bool> _restSleepAtNight;
+        private ConfigEntry<bool> _restSleepWhenPlayerSleeps;
+        private ConfigEntry<float> _restBedRadius;
+        private ConfigEntry<float> _restWakeDistance;
+        private ConfigEntry<float> _restStaminaMultiplier;
+        private ConfigEntry<float> _restHealRate;
+        private ConfigEntry<float> _restWarmup;
+        private ConfigEntry<float> _restSkillBonus;
+        private ConfigEntry<bool> _portalEnabled;
+        private ConfigEntry<float> _portalRadius;
+        private ConfigEntry<float> _portalReach;
+        private ConfigEntry<float> _portalTimeout;
+        private ConfigEntry<bool> _cartEnabled;
+        private ConfigEntry<float> _cartRadius;
 
         private Harmony _harmony;
 
@@ -1138,6 +1165,159 @@ namespace ModAIValheim
                 "mesmo bau (o 'Stack all' do jogo, item por item). Desligado, ele so move itens entre " +
                 "baus.");
 
+            // -----------------------------------------------------------------
+            // Fase 2.18: qualidade de vida — descanso/sono, portal e carroca
+            // -----------------------------------------------------------------
+
+            _restEnabled = Config.Bind(
+                "Descanso",
+                "Ligado",
+                true,
+                "Liga o DESCANSO do companheiro (Fase 2.18): quando ele fica OCIOSO (sem trabalho, " +
+                "coleta, deposito, loot ou combate) e voce esta por perto, ele SENTA perto de uma " +
+                "fogueira acesa (ou dentro da casa) e, de noite (ou quando voce se deita), DORME numa " +
+                "cama livre. Descansando ele recupera vida e resistencia mais rapido e ganha o " +
+                "DESCANSO do jogo (os numeros do SE_Rested vanilla).");
+
+            _restSit = Config.Bind(
+                "Descanso",
+                "SentarDescansar",
+                true,
+                "Se true (padrao), ele SENTA para descansar quando fica ocioso perto de uma fogueira " +
+                "ACESA (Fireplace.IsBurning) ou dentro da casa (modia_home set). Ele so senta com " +
+                "voce a menos de Descanso/RaioJogador e sem inimigo por perto - se voce se afastar " +
+                "ou aparecer briga, ele levanta e volta a te seguir. Desligado, ele nunca senta " +
+                "(so dorme, se DormirNaCama estiver ligado).");
+
+            _restFireRadius = Config.Bind(
+                "Descanso",
+                "RaioFogueira",
+                10f,
+                "Raio em metros (a partir do companheiro) em que ele procura uma fogueira acesa para " +
+                "sentar (2 a 40).");
+
+            _restPlayerRadius = Config.Bind(
+                "Descanso",
+                "RaioJogador",
+                12f,
+                "Distancia maxima em metros de VOCE para ele comecar a descansar (3 a 60). Passando " +
+                "disso o follow vence e ele vem atras de voce.");
+
+            _restSleepInBed = Config.Bind(
+                "Descanso",
+                "DormirNaCama",
+                true,
+                "Se true (padrao), ele DORME numa cama livre (Bed) perto de casa. A cama que e o SEU " +
+                "ponto de spawn atual NUNCA e usada (Bed.IsCurrent) nem a cama de outro jogador: " +
+                "para ele dormir, construa uma cama extra. Desligado, ele so senta no fogo.");
+
+            _restSleepAtNight = Config.Bind(
+                "Descanso",
+                "DormirDeNoite",
+                true,
+                "Se true (padrao), ele vai dormir sozinho quando ANOITECE (EnvMan.IsNight) e ha uma " +
+                "cama livre no raio - com ele na cama, a noite passa mais rapido como quando voce " +
+                "dorme (o jogo so pula a noite com todos na cama).");
+
+            _restSleepWhenPlayerSleeps = Config.Bind(
+                "Descanso",
+                "DormirQuandoVoceDorme",
+                true,
+                "Se true (padrao), ele vai para a cama junto com voce (quando voce se deita), mesmo " +
+                "de dia - e levanta quando voce levanta.");
+
+            _restBedRadius = Config.Bind(
+                "Descanso",
+                "RaioCama",
+                25f,
+                "Raio em metros (a partir do companheiro) em que ele procura uma cama livre " +
+                "(5 a 80).");
+
+            _restWakeDistance = Config.Bind(
+                "Descanso",
+                "DistanciaAcordar",
+                30f,
+                "Distancia maxima em metros de VOCE em que ele continua descansando/dormindo " +
+                "(5 a 200). Passando disso ele levanta e volta a te seguir - descanso e para voce " +
+                "estar por perto, nao para ele desaparecer no meio do mundo.");
+
+            _restStaminaMultiplier = Config.Bind(
+                "Descanso",
+                "MultiplicadorStamina",
+                2f,
+                "Multiplicador da regeneracao de RESISTENCIA enquanto ele descansa (1 a 10; padrao " +
+                "2 = o dobro). Depois de descansado, vale o multiplicador do SE_Rested do jogo.");
+
+            _restHealRate = Config.Bind(
+                "Descanso",
+                "TaxaCura",
+                3f,
+                "Vida por segundo que o companheiro recupera descansando (0 a 50; 0 desliga a cura " +
+                "do descanso). Ele nunca passa da vida maxima.");
+
+            _restWarmup = Config.Bind(
+                "Descanso",
+                "TempoParaDescansar",
+                20f,
+                "Segundos de descanso necessarios para ganhar o DESCANSO (o buff do jogo) - e o " +
+                "'warmup' do SE_Rested. A duracao do buff sai do conforto do lugar (o mesmo calculo " +
+                "do jogador). 1 a 300.");
+
+            _restSkillBonus = Config.Bind(
+                "Descanso",
+                "BonusSkill",
+                0.5f,
+                "Bonus de ganho de PERICIA enquanto ele esta descansado (0 a 2; padrao 0.5 = o " +
+                "m_raiseSkillModifier do SE_Rested do jogo). 0 desliga o bonus de skill.");
+
+            _portalEnabled = Config.Bind(
+                "Portal",
+                "Ligado",
+                true,
+                "Se true (padrao), o companheiro SEGUE VOCE PELO PORTAL (Fase 2.18): quando voce " +
+                "atravessa um portal ele anda ate o portal e, quando voce chega do outro lado, e " +
+                "levado para junto de voce - em vez de ficar para tras. Vale para qualquer teleporte " +
+                "seu (portal, morte, comando de console). Ele NAO segue se estiver ocupado " +
+                "(trabalho, coleta, deposito, loot, combate ou puxando a carroca): nesse caso ele " +
+                "fica onde esta (use Casa/VoltarSePerdido para ele voltar sozinho para casa).");
+
+            _portalRadius = Config.Bind(
+                "Portal",
+                "RaioPortal",
+                12f,
+                "Raio em metros (a partir de VOCE) em que o companheiro procura o portal que voce " +
+                "acabou de usar, para andar ate ele antes de atravessar (2 a 40).");
+
+            _portalReach = Config.Bind(
+                "Portal",
+                "AlcancePortal",
+                2.5f,
+                "Distancia em metros do portal em que o companheiro considera que 'entrou' nele " +
+                "(1 a 10).");
+
+            _portalTimeout = Config.Bind(
+                "Portal",
+                "TempoMaximo",
+                30f,
+                "Tempo maximo em segundos esperando o seu teleporte terminar antes de desistir de " +
+                "seguir (5 a 120). Teleportes distantes demoram ate a area de destino carregar.");
+
+            _cartEnabled = Config.Bind(
+                "Carroca",
+                "Ligado",
+                true,
+                "Liga o PUXAR A CARROCA (Fase 2.18): com o comando modia_cart pull, o companheiro " +
+                "anda ate o engate da carroca (Vagon) livre mais proxima e se prende nela pelo " +
+                "caminho do jogo - a carroca vem atras dele enquanto ele te segue, como quando VOCE " +
+                "puxa. modia_cart release solta. Ele nunca engata sozinho.");
+
+            _cartRadius = Config.Bind(
+                "Carroca",
+                "Raio",
+                25f,
+                "Raio em metros (a partir do companheiro) em que ele procura a carroca livre para " +
+                "puxar (3 a 80).");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -1303,8 +1483,31 @@ namespace ModAIValheim
                 _baseCareSortPerTrip,
                 _baseCareMergeStacks);
 
-            CompanionCommands.Register();
+            // Fase 2.18: qualidade de vida — descanso/sono, seguir pelo portal e carroça.
+            CompanionRest.Configure(
+                _restEnabled,
+                _restSit,
+                _restFireRadius,
+                _restPlayerRadius,
+                _restSleepInBed,
+                _restSleepAtNight,
+                _restSleepWhenPlayerSleeps,
+                _restBedRadius,
+                _restWakeDistance,
+                _restStaminaMultiplier,
+                _restHealRate,
+                _restWarmup,
+                _restSkillBonus);
 
+            CompanionPortalFollow.Configure(
+                _portalEnabled,
+                _portalRadius,
+                _portalReach,
+                _portalTimeout);
+
+            CompanionCart.Configure(_cartEnabled, _cartRadius);
+
+            CompanionCommands.Register();
             // Interface (Fase 2.6a): tokens de localização + dicas do hover do companheiro.
             CompanionHover.RegisterLocalization();
             CompanionHover.Configure(_hoverHints);
