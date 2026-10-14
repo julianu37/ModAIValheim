@@ -1,4 +1,5 @@
 using BepInEx.Configuration;
+using ModAIValheim.Companion.Jobs;
 using UnityEngine;
 
 namespace ModAIValheim.Companion
@@ -134,6 +135,7 @@ namespace ModAIValheim.Companion
             CompanionStateStore.Shutdown();
 
             _companion = null;
+            CompanionJobQueue.Shutdown();
             CompanionInventory.Shutdown();
             CompanionCombat.Shutdown();
             CompanionHarvest.Shutdown();
@@ -253,6 +255,10 @@ namespace ModAIValheim.Companion
                 Plugin.Log.LogInfo("[ModIA] Nenhum companheiro para dispensar.");
                 return;
             }
+
+            // Fase 2.16: um trabalho (caçar/pescar) morre com ele — e o encerramento devolve a vara
+            // para as costas ANTES da foto, para o companheiro não voltar com ela na mão.
+            CompanionJobQueue.Cancel(companion, "companheiro dispensado");
 
             // Fase 2.7: fotografa o companheiro ANTES de destruí-lo (itens, equipamento,
             // aparência, modo) para o próximo F1 devolvê-lo igual.
@@ -376,6 +382,10 @@ namespace ModAIValheim.Companion
             CompanionAI dying = GetCompanion();
             if (dying != null)
             {
+                // Fase 2.16: o trabalho (caçar/pescar) morre com ele — e o encerramento guarda a
+                // vara antes da foto (ele não volta com ela na mão).
+                CompanionJobQueue.Cancel(dying, "companheiro morreu");
+
                 // Fase 2.13: a perda de perícia por morte entra ANTES do snapshot — o companheiro
                 // guardado volta com o que sobrou, como um jogador que morreu.
                 CompanionSkills skills = dying.GetComponent<CompanionSkills>();

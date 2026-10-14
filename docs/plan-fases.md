@@ -57,6 +57,14 @@ ele **encerra** a tarefa); buscar/devolver a ferramenta certa.
 **Objetivo:** a mesma interface de "aponte para o trabalho" para: **caçar · cultivar · pescar ·
 cozinhar/preparar bebidas · operar fundições**.
 
+> **Status:** **2.16a ✅ (v0.4.3)** — infraestrutura de jobs (`Companion/Jobs/`: `CompanionJob`,
+> `CompanionJobQueue` com prioridade explícita `combate > coleta > depósito > loot > trabalho >
+> follow`) + **caçar** (`HuntJob`) e **pescar** (`FishJob` + os patches do `FishingFloat`).
+> Console: `modia_job hunt|fish|stop`.
+> **2.16b ⏳** — cultivar (`FarmController`/`FarmZone`), cozinhar (`CookController`/`CookFuel`),
+> fundições (`SmeltController`), caçar **pássaros** (arco: o "Birding" da referência) e a UI do
+> trabalho (menu/hover).
+
 | Referência | Job |
 |---|---|
 | `Jobs/HuntController.cs` | **caçar** (alvo por tipo, abate + loot) |

@@ -3,6 +3,72 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.3] — 2026-10-14
+
+### Adicionado
+- **TRABALHOS (JOBS) — infraestrutura + CAÇAR e PESCAR** (Fase 2.16a). O companheiro deixa de só
+  *seguir/coletar* e passa a **executar um trabalho de ponta a ponta** — o "aponte-os para o seu
+  trabalho" do [`docs/vision.md`](docs/vision.md).
+  - **Fila única de trabalho (`Companion/Jobs/CompanionJobQueue.cs`).** **Um** trabalho ativo por vez,
+    escolhido pelo jogador (`modia_job`): o controlador ativo dirige o companheiro e, quando ele
+    termina (meta atingida, fauna esgotada, sem peixe, tempo esgotado…), a fila fecha a conta
+    (log + HUD) e o companheiro **volta a seguir você**. Um comando novo **substitui** o trabalho em
+    andamento (o antigo é encerrado com o motivo "novo trabalho pedido", nunca fica pendurado) e
+    `modia_job stop` (ou `modia_stop`) para tudo.
+  - **Base dos trabalhos (`Companion/Jobs/CompanionJob.cs`).** Máquina de estados própria por
+    trabalho (`OnStart`/`OnTick`/`OnStop`), sem `MonoBehaviour` e **sem nada por frame**: o tick roda
+    na camada `CompanionAI.UpdateJob` (~20 Hz), com varredura em intervalo, buffers reaproveitados e
+    **log deduplicado** (a mesma linha não repete dentro de 10 s) — o mesmo padrão do log de nós da
+    coleta.
+  - **Prioridade explícita, na ordem das camadas:**
+    `combate > coleta > depósito > loot > TRABALHO > follow`. O combate é do motor nativo (e o caçar
+    *vive* dele); coleta e viagem ao baú **pausam** o trabalho (a tarefa continua viva e ele retoma
+    sozinho, sem contar no relógio do job); o loot é tratado dentro de cada trabalho. O movimento
+    ganhou dois donos novos no "dono único do movimento por frame":
+    `MovementOwner.Hunt` e `MovementOwner.Fish`.
+  - **CAÇAR (`Companion/Jobs/HuntJob.cs`).** O companheiro procura a **fauna** por perto
+    (javali, cervo, lebre, neck, lox…), **entrega o alvo ao motor nativo** (o mesmo caminho do modo
+    Aggressive: mira, pathfinding, animação, hitbox e dano são do jogo — funciona com o combate, a
+    arma, o bloqueio e a stamina que já existem) e, ao abater, **cata o que caiu** pelo `CompanionLoot`
+    (Fase 2.12) antes de sair caçando de novo. Presas: **fauna neutra** (`AnimalsVeg`) que deixa algo
+    cair — o catálogo é lido dos próprios prefabs do jogo (`Character` + `CharacterDrop`), então
+    criaturas de mods entram sozinhas. Nunca: jogadores, domados, chefes, o próprio companheiro ou
+    quem o jogo mandou ignorar. Tem "coleira" (a mesma do combate: presa longe do jogador é
+    ignorada), troca por um alvo bem mais perto antes do primeiro golpe e veta (60 s) a presa que
+    escapou. **Pássaros** (`RandomFlyingBird`) ficaram para a 2.16b: não são `Character` e exigem um
+    estado próprio de arco/tiro.
+  - **PESCAR (`Companion/Jobs/FishJob.cs` + `Companion/Jobs/CompanionFishPatches.cs`).** Pescaria
+    **de verdade**, com o flutuador do próprio jogo: ele anda até a **margem**, equipa a **vara** e a
+    **isca** do inventário, escolhe a isca que o peixe aceita melhor (`Fish.m_baits`, pela chance),
+    **arremessa** (força aprendida de onde o flutuador caiu), espera a **fisgada**, **puxa**
+    (larga quando o peixe foge/linha tensiona, puxa quando ele cansa) e **guarda o peixe** —
+    respeitando a **stamina** (descansa na margem antes de arremessar) e com a perícia de pesca
+    valendo (puxar mais rápido/barato). O flutuador do jogo **só conhece jogadores** (procura o dono
+    na lista de jogadores pelo *user id*), então três patches dão a ele uma chave própria no ZDO
+    (`FishingFloat.Setup`/`GetOwner`/`ReturnBait`): sem eles o flutuador do companheiro se destruía
+    na hora (e podia derrubar o SEU). Fora do núcleo (2.16b): o mapeamento de **todos** os pontos de
+    margem da região e o "caminhar para casa com a carga" (o depósito da 2.14 já cobre a carga).
+  - **Console:** `modia_job <hunt|fish|stop> [qtd]` (aceita `cacar`/`pescar`/`parar`) e o
+    `modia_stats` ganhou a linha do trabalho (nome, progresso, tempo e o que ele está fazendo).
+    `modia_stop` passou a parar também o trabalho.
+  - **HUD:** início, abates/peixes e encerramento saem no canto superior esquerdo (o mesmo canal da
+    coleta/depósito), e cada passo relevante sai no log do BepInEx (deduplicado).
+- **Config `[Jobs]` (PT-BR):** `Ligado` (padrão `true` — **libera** os trabalhos; o companheiro
+  **nunca** começa um sozinho), `QuantidadePadrao` (0 = sem limite), `TempoMaximoPorJob` (padrão
+  1200 s = 20 min, `0` = sem limite), `IntervaloVarredura`, `RaioHunt` (40 m), `RaioFish` (30 m),
+  `DistanciaArremesso` (20 m), `EsperaFisgada` (60 s), `StaminaMinimaArremesso` (60%),
+  `FornecerVara`/`VaraPrefab` (FishingRod), `FornecerIsca`/`IscaPrefab`/`IscaQuantidade`
+  (FishingBait ×20).
+
+### Alterado
+- `CompanionAI` ganhou a camada `UpdateJob` (entre o loot e a guarda de follow), o alvo de trabalho
+  (`_jobTarget`: a fauna neutra não passa no filtro de combate e seria largada a cada varredura) e a
+  **superfície dos trabalhos** (`JobApproach`/`JobEngage`/`JobAttack`/`JobSetBlocking`…): os
+  controladores não mexem nos campos do motor nativo.
+- `CompanionInventory` ganhou `FindFishingRod`/`EnsureFishingGear` (vara e isca fornecidas quando
+  faltam, como machado/picareta já eram).
+- `CompanionManager` encerra o trabalho ao dispensar/morrer e solta a fila no shutdown.
+
 ## [0.4.2] — 2026-10-14
 
 ### Adicionado

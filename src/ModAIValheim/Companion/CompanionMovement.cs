@@ -35,6 +35,19 @@ namespace ModAIValheim.Companion
         /// (tool keeper). Vence a coleta enquanto está ativa (a tarefa continua viva e volta depois).
         /// </summary>
         Deposit,
+
+        /// <summary>
+        /// O <b>trabalho de caçar</b> (Fase 2.16): quem persegue a presa é o motor nativo do jogo
+        /// (o alvo foi entregue por <c>CompanionAI.JobEngage</c>), mas a camada do trabalho é a dona
+        /// do frame enquanto ele roda — é o que impede a guarda de follow de mexer no passo.
+        /// </summary>
+        Hunt,
+
+        /// <summary>
+        /// O <b>trabalho de pescar</b> (Fase 2.16): o companheiro anda até o ponto de pesca e para
+        /// lá (arremessar/puxar não dirigem movimento, mas o frame continua sendo dele).
+        /// </summary>
+        Fish,
     }
 
     /// <summary>

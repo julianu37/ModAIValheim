@@ -803,6 +803,95 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
+        /// Vara de pesca no inventário: o item com a animação de vara
+        /// (<c>ItemData.AnimationState.FishingRod</c>) — é a mesma marcação que o <c>FishController</c>
+        /// da referência usa. Null quando ele não tem nenhuma.
+        /// </summary>
+        internal static ItemDrop.ItemData FindFishingRod(Inventory inventory)
+        {
+            if (inventory == null)
+            {
+                return null;
+            }
+
+            List<ItemDrop.ItemData> items = inventory.GetAllItems();
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop.ItemData item = items[i];
+                if (item != null && item.m_shared != null &&
+                    item.m_shared.m_animationState == ItemDrop.ItemData.AnimationState.FishingRod)
+                {
+                    return item;
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Garante a <b>vara de pesca</b> e a <b>isca</b> do trabalho de pescar (Fase 2.16a), como
+        /// <see cref="EnsureHarvestTools"/> faz com machado/picareta: sem vara ele não pesca, e sem
+        /// isca o arremesso nem sai (o <c>Attack.Start</c> cobra a munição do tipo da vara).
+        ///
+        /// <para>
+        /// Só cria o que falta e devolve <c>false</c> com <paramref name="missing"/> quando nem criar
+        /// nem achar resolveu (prefab inexistente, inventário cheio). Desligável em
+        /// <c>Jobs/FornecerVara</c> e <c>Jobs/FornecerIsca</c>.
+        /// </para>
+        /// </summary>
+        internal static bool EnsureFishingGear(
+            CompanionAI companion,
+            string rodPrefab,
+            string baitPrefab,
+            int baitAmount,
+            bool provideRod,
+            bool provideBait,
+            out string missing)
+        {
+            missing = null;
+
+            Humanoid humanoid = Resolve(companion);
+            Inventory inventory = humanoid != null ? humanoid.GetInventory() : null;
+            if (inventory == null)
+            {
+                missing = "companheiro sem inventario";
+                return false;
+            }
+
+            if (FindFishingRod(inventory) == null)
+            {
+                GameObject prefab = provideRod ? FindItemPrefab(rodPrefab) : null;
+                if (prefab != null && AddItems(inventory, prefab, 1) != null)
+                {
+                    Plugin.Log.LogInfo($"[ModIA] Pescar: vara fornecida ao companheiro ('{rodPrefab}').");
+                }
+                else
+                {
+                    missing = $"sem vara de pesca ('{rodPrefab}')";
+                    return false;
+                }
+            }
+
+            if (FindInInventoryByName(inventory, baitPrefab) == null)
+            {
+                GameObject prefab = provideBait ? FindItemPrefab(baitPrefab) : null;
+                int amount = Mathf.Max(1, baitAmount);
+                if (prefab != null && AddItems(inventory, prefab, amount) != null)
+                {
+                    Plugin.Log.LogInfo(
+                        $"[ModIA] Pescar: {amount}x '{baitPrefab}' fornecidos ao companheiro.");
+                }
+                else
+                {
+                    missing = $"sem isca ('{baitPrefab}')";
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
         /// Garante uma ferramenta <b>do tier exigido pelo nó</b> (item #8 da auditoria). Quando a
         /// varredura acha um nó que renderia o recurso mas a ferramenta atual não arranha — típico de
         /// prata/obsidiana (tier 2) com a picareta de chifre (tier 1) —, escolhe a <b>melhor</b>

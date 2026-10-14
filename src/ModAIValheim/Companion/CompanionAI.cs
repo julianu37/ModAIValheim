@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using ModAIValheim.Companion.Jobs;
 using UnityEngine;
 
 namespace ModAIValheim.Companion
@@ -181,6 +182,21 @@ namespace ModAIValheim.Companion
         /// </summary>
         private bool _depositWasActive;
 
+        // --- Fase 2.16: trabalhos (caçar/pescar) ---
+        /// <summary>
+        /// Alvo de combate entregue por um <b>trabalho</b> (o caçar). A fauna neutra não passa no
+        /// filtro de alvo do combate (é "passiva" para o modo Defensive/Aggressive), então o alvo do
+        /// trabalho é mantido à parte: a varredura por modo não o larga, mas um inimigo de verdade
+        /// (revide) continua tendo prioridade.
+        /// </summary>
+        private Character _jobTarget;
+
+        /// <summary>True enquanto a camada de trabalho esteve no comando no frame anterior.</summary>
+        private bool _jobWasActive;
+
+        /// <summary>Aviso de "trabalho pausado" (coleta/depósito) já saiu? (não repete no log).</summary>
+        private bool _jobWaitLogged;
+
         // --- Fase 2.10: dono do movimento por frame (#2/#5) e bloqueio/parry (#6) ---
         /// <summary>Quem dirige o movimento neste frame (evita <c>MoveTo</c> concorrendo).</summary>
         private MovementOwner _movementOwner;
@@ -335,6 +351,11 @@ namespace ModAIValheim.Companion
             // quando ela NÃO está ativa (prioridade combate > coleta > loot/follow).
             UpdateLoot(dt);
 
+            // Fase 2.16: TRABALHOS (caçar/pescar). Roda depois do loot e antes da guarda de follow:
+            // a prioridade fica explícita na ordem das camadas —
+            // combate > coleta > depósito > loot > TRABALHO > follow.
+            UpdateJob(dt);
+
             // Fase 2.10 (#2/#5): guarda o passo do follow nativo (porta/barranco) — só quando a
             // coleta não reivindicou o frame.
             UpdateFollowSafety(dt);
@@ -401,6 +422,9 @@ namespace ModAIValheim.Companion
 
             if (mode == CompanionMode.Passive)
             {
+                // O trabalho de caçar não sobrevive ao modo passivo (ele se encerra sozinho no
+                // próximo tick, mas o alvo dele não pode continuar de pé até lá).
+                _jobTarget = null;
                 ClearTarget("modo passivo");
                 if (IsAlerted())
                 {
@@ -479,10 +503,39 @@ namespace ModAIValheim.Companion
 
             if (mode == CompanionMode.Passive)
             {
+                // Um trabalho não caça em modo passivo (o próprio trabalho se encerra): o alvo dele
+                // não pode sobreviver à troca de modo.
+                _jobTarget = null;
                 ClearTarget("modo passivo");
                 if (IsAlerted())
                 {
                     SetAlerted(false);
+                }
+
+                return;
+            }
+
+            // Fase 2.16: um TRABALHO é dono do alvo dele. A presa do caçar é fauna neutra e não
+            // passa no filtro do combate (IsPassiveCreature), então a varredura por modo a largaria
+            // a cada ciclo — aqui ela é preservada. Nada é reengajado por aqui: quem entrega o alvo
+            // é o próprio trabalho (JobEngage) e, se o motor nativo largar (coleira/30 s sem sentir),
+            // o trabalho é que resolve (veta a presa e varre de novo).
+            if (_jobTarget != null)
+            {
+                if (_jobTarget.IsDead() || current != _jobTarget)
+                {
+                    return;
+                }
+
+                // Defensive: quem acabou de nos agredir vence a caça (o combate é prioridade).
+                if (mode == CompanionMode.Defensive)
+                {
+                    Character attacker = CompanionCombat.GetRecentAttacker();
+                    if (attacker != null && attacker != _jobTarget &&
+                        IsTargetValid(attacker, mode, retaliation: true))
+                    {
+                        SetCurrentTarget(attacker, mode);
+                    }
                 }
 
                 return;
@@ -1785,6 +1838,73 @@ namespace ModAIValheim.Companion
         }
 
         // ---------------------------------------------------------------------
+        // Fase 2.16: trabalhos (jobs) — caçar/pescar
+        // ---------------------------------------------------------------------
+
+        /// <summary>
+        /// Camada de <b>trabalhos</b> (Fase 2.16): caçar e pescar — o "aponte para o trabalho" do
+        /// <c>docs/vision.md</c>. Quem manda no companheiro é o controlador ativo da
+        /// <see cref="CompanionJobQueue"/> (um trabalho por vez, escolhido pelo jogador com
+        /// <c>modia_job</c>).
+        ///
+        /// <para>
+        /// <b>Prioridade (explícita, na ordem das camadas):</b> o <b>combate</b> é do motor nativo e o
+        /// caçar <i>vive</i> dele (é o trabalho que entrega o alvo a ser perseguido); a <b>coleta</b> e
+        /// o <b>depósito em baú</b> pausam o trabalho aqui (a tarefa continua viva e ele retoma
+        /// sozinho); o <b>loot</b> é tratado dentro de cada trabalho (o caçador espera catar o abate
+        /// antes de caçar de novo; o pescador guarda a vara enquanto o companheiro vai ao corpo); e o
+        /// <b>follow</b> volta quando o trabalho acaba.
+        /// </para>
+        ///
+        /// <para>
+        /// <b>Dono do movimento:</b> o trabalho reivindica o frame
+        /// (<see cref="MovementOwner.Hunt"/>/<see cref="MovementOwner.Fish"/>) por
+        /// <see cref="JobApproach"/> — a guarda de follow (<see cref="UpdateFollowSafety"/>) só age
+        /// com <see cref="MovementOwner.Native"/>.
+        /// </para>
+        /// </summary>
+        private void UpdateJob(float dt)
+        {
+            if (!CompanionJobQueue.HasJob)
+            {
+                if (_jobWasActive)
+                {
+                    _jobWasActive = false;
+
+                    // O trabalho acabou: se ninguém mais está no comando do movimento, o companheiro
+                    // volta a seguir o jogador (o alvo de caça já foi largado pelo OnStop).
+                    if (!CompanionHarvest.IsActive && !CompanionDeposit.TripActive)
+                    {
+                        RestoreFollowTarget();
+                    }
+                }
+
+                return;
+            }
+
+            _jobWasActive = true;
+
+            // Coleta e depósito vencem o trabalho: ele espera parado (sem contar no relógio do job).
+            if (CompanionHarvest.IsActive || CompanionDeposit.TripActive)
+            {
+                if (!_jobWaitLogged)
+                {
+                    _jobWaitLogged = true;
+                    Plugin.Log.LogInfo(
+                        CompanionHarvest.IsActive
+                            ? "[ModIA] Trabalho: pausado enquanto a coleta esta no comando."
+                            : "[ModIA] Trabalho: pausado enquanto o companheiro leva a carga ao bau.");
+                }
+
+                StopMoving();
+                return;
+            }
+
+            _jobWaitLogged = false;
+            CompanionJobQueue.Tick(this, dt);
+        }
+
+        // ---------------------------------------------------------------------
         // Fase 2.10 (#6): bloqueio/parry
         // ---------------------------------------------------------------------
 
@@ -2441,6 +2561,137 @@ namespace ModAIValheim.Companion
             }
 
             base.SetFollowTarget(_followTarget);
+        }
+
+        // ---------------------------------------------------------------------
+        // Fase 2.16: superfície dos trabalhos (o que os controladores usam)
+        // ---------------------------------------------------------------------
+        //
+        // Os controladores de trabalho (Companion/Jobs) são classes próprias e não mexem nos campos
+        // do motor nativo: tudo o que eles precisam passa por aqui. É o mesmo cuidado da Fase 2.4a
+        // com o acesso "não-público" (a assembly do jogo é publicized): o que é do jogo fica
+        // isolado nesta região.
+
+        /// <summary>Corpo do companheiro (<see cref="Character"/>) — leitura para os trabalhos.</summary>
+        internal Character JobCharacter => m_character;
+
+        /// <summary>Corpo do companheiro como <see cref="Humanoid"/> (inventário/equipamento).</summary>
+        internal Humanoid JobHumanoid => m_character as Humanoid;
+
+        /// <summary>Inventário do companheiro (null quando não há corpo/inventário).</summary>
+        internal Inventory JobInventory
+        {
+            get
+            {
+                Humanoid humanoid = m_character as Humanoid;
+                return humanoid != null ? humanoid.GetInventory() : null;
+            }
+        }
+
+        /// <summary>Posição do companheiro.</summary>
+        internal Vector3 JobPosition => transform.position;
+
+        /// <summary>O companheiro está nadando?</summary>
+        internal bool JobIsSwimming => m_character != null && m_character.IsSwimming();
+
+        /// <summary>O companheiro está no chão?</summary>
+        internal bool JobIsOnGround => m_character != null && m_character.IsOnGround();
+
+        /// <summary>O companheiro está no meio de um ataque (animação)?</summary>
+        internal bool JobInAttack => m_character != null && m_character.InAttack();
+
+        /// <summary>Existe alvo de combate ativo (de qualquer origem)?</summary>
+        internal bool JobHasCombatTarget => GetTargetCreature() != null;
+
+        /// <summary>
+        /// Alvo entregue pelo trabalho atual (null quando não há). Vale apenas enquanto ele for o
+        /// alvo <b>real</b> do combate: se o motor nativo o largou (coleira, 30 s sem sentir, morte),
+        /// o trabalho precisa saber para vetar a presa e voltar a varrer.
+        /// </summary>
+        internal Character JobTarget =>
+            _jobTarget != null && GetTargetCreature() == _jobTarget ? _jobTarget : null;
+
+        /// <summary>Resistência atual do companheiro (&lt; 0 = sem medição).</summary>
+        internal float JobStamina => _stamina != null ? _stamina.Stamina : -1f;
+
+        /// <summary>Teto de resistência do companheiro (0 = sem medição).</summary>
+        internal float JobMaxStamina => _stamina != null ? _stamina.MaxStamina : 0f;
+
+        /// <summary>
+        /// O trabalho engaja um alvo no combate do companheiro (é o que o caçar usa): o alvo passa a
+        /// ser perseguido/atacado pelo motor nativo, com o mesmo caminho do modo Aggressive
+        /// (<see cref="SetCurrentTarget"/>), e fica <b>marcado como alvo de trabalho</b> para a
+        /// varredura por modo não largá-lo.
+        /// </summary>
+        internal void JobEngage(Character target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            _jobTarget = target;
+            SetCurrentTarget(target, CompanionCombat.Mode);
+        }
+
+        /// <summary>
+        /// Larga o alvo do trabalho (a varredura por modo volta a mandar). Não faz nada quando o
+        /// trabalho não tinha alvo — o combate normal não é interrompido por engano.
+        /// </summary>
+        internal void JobDisengage(string reason)
+        {
+            if (_jobTarget == null)
+            {
+                return;
+            }
+
+            _jobTarget = null;
+            ClearTarget(reason);
+        }
+
+        /// <summary>
+        /// Aproxima (ou para) do ponto, reivindicando o movimento do frame para o trabalho
+        /// (<paramref name="owner"/>). Passa pelas mesmas guardas de porta/barranco da coleta.
+        /// </summary>
+        internal void JobApproach(float dt, Vector3 point, float stopAt, MovementOwner owner)
+        {
+            ApproachAndWork(dt, point, stopAt, owner);
+        }
+
+        /// <summary>Para o companheiro (usado pelo trabalho enquanto ele não dirige o passo).</summary>
+        internal void JobStopMoving()
+        {
+            StopMoving();
+        }
+
+        /// <summary>Vira o companheiro para um ponto (mira do arremesso, do golpe, do peixe).</summary>
+        internal void JobLookAt(Vector3 point)
+        {
+            LookAt(point);
+        }
+
+        /// <summary>O companheiro já está olhando para o ponto (dentro do ângulo)?</summary>
+        internal bool JobIsLookingAt(Vector3 point, float maxAngle)
+        {
+            return IsLookingAt(point, maxAngle);
+        }
+
+        /// <summary>
+        /// Ergue/baixa o escudo pelo mesmo campo que o jogo usa (<c>Character.m_blocking</c>) — é o
+        /// "puxar a linha" da pesca (o flutuador do jogo só recolhe enquanto o dono está bloqueando).
+        /// </summary>
+        internal void JobSetBlocking(bool value)
+        {
+            SetBlocking(value);
+        }
+
+        /// <summary>
+        /// Dispara o ataque do item equipado (<c>StartAttack(null, false)</c>): é o que solta a
+        /// linha da vara de pesca (com a força de arremesso já posta em <c>m_attackDrawTime</c>).
+        /// </summary>
+        internal bool JobAttack()
+        {
+            return m_character != null && m_character.StartAttack(null, false);
         }
 
         // ---------------------------------------------------------------------

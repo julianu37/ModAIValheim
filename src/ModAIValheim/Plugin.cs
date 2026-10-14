@@ -5,6 +5,7 @@ using BepInEx.Configuration;
 using BepInEx.Logging;
 using HarmonyLib;
 using ModAIValheim.Companion;
+using ModAIValheim.Companion.Jobs;
 using UnityEngine;
 
 namespace ModAIValheim
@@ -46,6 +47,11 @@ namespace ModAIValheim
     /// deposita e volta a coletar (ou pausa e avisa, se não houver baú). O tool keeper busca num baú
     /// a ferramenta que faltar (além de criar, como já fazia) e devolve a emprestada quando não usa
     /// mais.
+    /// Fase 2.16a: TRABALHOS — a infraestrutura de jobs (`CompanionJobQueue`: um trabalho por vez,
+    /// com a prioridade explícita combate > coleta > depósito > loot > trabalho > follow) e os dois
+    /// primeiros trabalhos: CAÇAR (abate a fauna do raio e cata o que caiu) e PESCAR (vara e isca do
+    /// inventário, arremesso no peixe, fisgada e puxão com o flutuador do jogo). Console:
+    /// `modia_job hunt|fish|stop`.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -53,7 +59,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.2";
+        public const string PluginVersion = "0.4.3";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -141,6 +147,22 @@ namespace ModAIValheim
 
         // Interface (Fase 2.6a).
         private ConfigEntry<bool> _hoverHints;
+
+        // Trabalhos (jobs): caçar e pescar (Fase 2.16).
+        private ConfigEntry<bool> _jobsEnabled;
+        private ConfigEntry<int> _jobsDefaultAmount;
+        private ConfigEntry<float> _jobsMaxSeconds;
+        private ConfigEntry<float> _jobsScanInterval;
+        private ConfigEntry<float> _huntRadius;
+        private ConfigEntry<float> _fishRadius;
+        private ConfigEntry<float> _fishCastRange;
+        private ConfigEntry<float> _fishCastWait;
+        private ConfigEntry<float> _fishMinCastStamina;
+        private ConfigEntry<bool> _provideRod;
+        private ConfigEntry<string> _rodPrefab;
+        private ConfigEntry<bool> _provideBait;
+        private ConfigEntry<string> _baitPrefab;
+        private ConfigEntry<int> _baitAmount;
 
         // Menu do mod (Fase 2.6b).
         private ConfigEntry<KeyCode> _menuKey;
@@ -652,6 +674,112 @@ namespace ModAIValheim
                 "aparencia, combate, coleta e teclas). Abre quando o jogador esta a ate 5 m do " +
                 "companheiro; fecha com a mesma tecla, com ESC ou pelo botao Fechar.");
 
+            // Trabalhos: caçar e pescar (Fase 2.16).
+            _jobsEnabled = Config.Bind(
+                "Jobs",
+                "Ligado",
+                true,
+                "Liga os TRABALHOS do companheiro (cacar e pescar). Ele NUNCA comeca um trabalho " +
+                "sozinho: isto so libera o comando modia_job. Desligado, modia_job recusa o pedido " +
+                "e o companheiro fica apenas no follow/coleta. (Padrao ligado para o trabalho estar " +
+                "disponivel de primeira; quem quiser o NPC estritamente no follow pode desligar.)");
+
+            _jobsDefaultAmount = Config.Bind(
+                "Jobs",
+                "QuantidadePadrao",
+                0,
+                "Quantidade alvo de um trabalho pedido SEM numero (modia_job hunt). " +
+                "0 = sem limite: ele trabalha ate acabar o que ha no raio (fauna para cacar, peixe " +
+                "para pescar). Vale para os dois trabalhos.");
+
+            _jobsMaxSeconds = Config.Bind(
+                "Jobs",
+                "TempoMaximoPorJob",
+                1200f,
+                "Teto de tempo em segundos de UM trabalho (padrao 1200 s = 20 min; 0 = sem limite). " +
+                "E a rede de seguranca: passando disso o trabalho e encerrado e ele volta a seguir " +
+                "voce. O relogio so anda enquanto o trabalho esta de fato no comando (espera de " +
+                "coleta/deposito nao conta).");
+
+            _jobsScanInterval = Config.Bind(
+                "Jobs",
+                "IntervaloVarredura",
+                2f,
+                "Intervalo em segundos entre as varreduras de alvo dos trabalhos (0.5 a 10). " +
+                "A varredura usa buffer reaproveitado e nunca roda por frame.");
+
+            _huntRadius = Config.Bind(
+                "Jobs",
+                "RaioHunt",
+                40f,
+                "Raio em metros (a partir do companheiro) em que o trabalho de CACAR procura a fauna " +
+                "(5 a 150). Presas mais longe que a 'coleira' do jogador (Combate/Coleira) sao " +
+                "ignoradas: o proprio motor do jogo largaria o alvo no tick seguinte.");
+
+            _fishRadius = Config.Bind(
+                "Jobs",
+                "RaioFish",
+                30f,
+                "Raio em metros (a partir do companheiro) em que o trabalho de PESCAR procura peixes " +
+                "na agua (5 a 150).");
+
+            _fishCastRange = Config.Bind(
+                "Jobs",
+                "DistanciaArremesso",
+                20f,
+                "Distancia maxima em metros de um arremesso da vara (6 a 28). O jogo arrebenta a " +
+                "linha a ~30 m; um arremesso cheio vai a ~24 m. O companheiro escolhe a margem de " +
+                "onde o peixe fique dentro disso e aprende a forca do arremesso pelo que ja caiu.");
+
+            _fishCastWait = Config.Bind(
+                "Jobs",
+                "EsperaFisgada",
+                60f,
+                "Tempo maximo em segundos esperando uma fisgada antes de recolher a linha e tentar de " +
+                "novo (5 a 300).");
+
+            _fishMinCastStamina = Config.Bind(
+                "Jobs",
+                "StaminaMinimaArremesso",
+                0.6f,
+                "Fracao da resistencia (0 a 1) que o companheiro exige para ARREMESSAR a vara. " +
+                "Puxar um peixe cansa e um peixe fisgado com a barra vazia se perde: ele descansa na " +
+                "margem ate ter essa margem (padrao 0.6 = 60%). 0 = arremessa sempre.");
+
+            _provideRod = Config.Bind(
+                "Jobs",
+                "FornecerVara",
+                true,
+                "Se true (padrao), quando o companheiro NAO tiver vara de pesca o mod cria uma " +
+                "(Jobs/VaraPrefab) no inventario dele. Desligado, o trabalho de pescar avisa que " +
+                "falta a vara (de a ele com modia_equip FishingRod).");
+
+            _rodPrefab = Config.Bind(
+                "Jobs",
+                "VaraPrefab",
+                CompanionJobsConfig.DefaultRodPrefab,
+                "Prefab vanilla da vara de pesca usada pelo trabalho (padrao FishingRod).");
+
+            _provideBait = Config.Bind(
+                "Jobs",
+                "FornecerIsca",
+                true,
+                "Se true (padrao), quando o companheiro ficar sem isca o mod repoe " +
+                "(Jobs/IscaPrefab x Jobs/IscaQuantidade) - a isca e consumida a cada arremesso que " +
+                "fisga. Desligado, ele para de pescar quando a isca acabar.");
+
+            _baitPrefab = Config.Bind(
+                "Jobs",
+                "IscaPrefab",
+                CompanionJobsConfig.DefaultBaitPrefab,
+                "Prefab vanilla da isca de pesca (padrao FishingBait).");
+
+            _baitAmount = Config.Bind(
+                "Jobs",
+                "IscaQuantidade",
+                20,
+                "Quantas iscas o mod cria de uma vez quando ele fica sem (1 a 200).");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -756,6 +884,23 @@ namespace ModAIValheim
                 _skillsAnnounce,
                 _skillsLoseOnDeath,
                 _skillsDeathLossFactor);
+
+            // Trabalhos (jobs): caçar e pescar (Fase 2.16).
+            CompanionJobsConfig.Configure(
+                _jobsEnabled,
+                _jobsDefaultAmount,
+                _jobsMaxSeconds,
+                _jobsScanInterval,
+                _huntRadius,
+                _fishRadius,
+                _fishCastRange,
+                _fishCastWait,
+                _fishMinCastStamina,
+                _provideRod,
+                _rodPrefab,
+                _provideBait,
+                _baitPrefab,
+                _baitAmount);
 
             CompanionCommands.Register();
 

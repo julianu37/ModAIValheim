@@ -36,13 +36,14 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **F4** | Iniciar/parar a coleta do **recurso padrão** (config `Coleta/RecursoPadrao`, padrão `Wood`) |
 | **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
 | `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`, `modia_gather cobre 30`) — ver a [lista de materiais](#materiais-suportados-fase-28) |
-| `modia_stop` | Para a coleta e volta a seguir o jogador (também limpa o alvo de combate) |
+| `modia_job <hunt\|fish\|stop> [qtd]` | Manda o companheiro **executar um trabalho** (caçar/pescar) — ver [Trabalhos](#trabalhos-jobs-fase-216) |
+| `modia_stop` | Para a coleta, o trabalho e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_state [clear]` | Mostra o companheiro guardado (snapshot); `clear` esquece o snapshot e volta ao loadout padrão |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
-| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito e ferramentas emprestadas do companheiro |
+| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina), perícias, **carga/peso**, depósito, ferramentas emprestadas e o **trabalho em andamento** do companheiro |
 | `modia_deposit` | (console, F5) manda o companheiro levar a carga ao **baú** mais próximo agora |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
@@ -484,6 +485,89 @@ fica vagando.
 
 O menu (**Y**) mostra `Carga: 123/300 kg` no painel **Coleta** quando existe teto configurado.
 
+### Trabalhos (jobs) — Fase 2.16a
+
+O companheiro não é mais só "segue e coleta": você **aponta para o trabalho** e ele **executa de
+ponta a ponta** (o "aponte-os para o seu trabalho" do [`docs/vision.md`](docs/vision.md)).
+
+```
+modia_job hunt 5     # caçar: abate 5 animais por perto e cata o que caiu
+modia_job fish       # pescar: vara na mão, arremessa e puxa (sem limite)
+modia_job stop       # para o trabalho (o mesmo que modia_stop)
+```
+
+#### Como funciona a fila de trabalho
+
+- **Um trabalho por vez.** Quem manda no companheiro é o controlador ativo da fila
+  (`CompanionJobQueue`); um comando novo **substitui** o trabalho em andamento (ele é encerrado com
+  o motivo "novo trabalho pedido") e, quando o trabalho **acaba**, o companheiro **volta a seguir
+  você** sozinho (com o resumo no HUD e no log).
+- **Prioridade explícita**, na ordem das camadas do `CompanionAI`:
+  **combate > coleta > depósito > loot > TRABALHO > follow**.
+  - **Combate:** o alvo hostil é do motor nativo — e o *caçar* vive dele (é o trabalho que entrega a
+    presa). Um inimigo de verdade (quem te agride, no modo Defensivo) vence a caça.
+  - **Coleta / depósito:** um `modia_gather` ou uma viagem ao baú **pausa** o trabalho (ele espera
+    parado, sem contar no relógio do job) e **retoma sozinho** quando a coleta/viagem termina.
+  - **Loot:** o caçador espera **catar o abate** antes de sair caçando de novo; o pescador guarda a
+    vara enquanto o companheiro vai ao corpo.
+- **Nada roda por frame:** a varredura de alvo tem intervalo próprio (`Jobs/IntervaloVarredura`,
+  padrão 2 s), usa buffers reaproveitados e o log de eventos é **deduplicado** (a mesma linha não
+  repete dentro de 10 s).
+- **Rede de segurança:** `Jobs/TempoMaximoPorJob` (padrão 20 min) encerra um trabalho que trava.
+
+#### Caçar
+
+1. A cada varredura ele procura a **fauna** no raio (`Jobs/RaioHunt`, padrão 40 m): javali, cervo,
+   lebre, neck, lox… — **animais que deixam algo cair** (o catálogo é lido dos prefabs do jogo, então
+   criaturas de mods entram sozinhas). **Nunca**: jogadores, animais **domados**, chefes, o próprio
+   companheiro ou quem o jogo mandou ignorar.
+2. A presa é entregue ao **combate que já existe** (o mesmo caminho do modo Aggressive): quem
+   persegue, mira, ataca, bloqueia e gasta stamina é o motor do jogo — nenhum ataque foi
+   reimplementado.
+3. Abateu? Ele **conta o abate** e **cata o que caiu** (o `CompanionLoot` da Fase 2.12, que já espera
+   os itens saírem do corpo) — e só depois sai atrás da próxima presa.
+4. Repete até a **quantidade** pedida ou até **acabar a caça no raio** (3 varreduras vazias
+   seguidas). Uma presa que escapa é vetada por 60 s; uma presa longe demais do jogador (a mesma
+   "coleira" do combate) é ignorada — não é fuga, é caça.
+
+> **Pássaros** (`RandomFlyingBird`) ficaram para a **2.16b**: eles não são `Character` e exigem um
+> estado próprio de aproximação/arco (o "Birding" da referência).
+
+#### Pescar
+
+1. Ele procura **peixes** na água no raio (`Jobs/RaioFish`, padrão 30 m) e uma **margem** de onde o
+   peixe fique ao alcance do arremesso e à vista (linha livre, espaço para ficar de pé).
+2. Anda até a margem, **equipa a vara e a isca** do inventário e escolhe a **isca que aquele peixe
+   aceita melhor** (`Fish.m_baits`, pela chance). Falta vara/isca? Com
+   `Jobs/FornecerVara`/`FornecerIsca` (padrão ligados) o mod cria (FishingRod/FishingBait); sem isso,
+   ele avisa que falta.
+3. **Descansa** até ter stamina de sobra (`Jobs/StaminaMinimaArremesso`, padrão 60% — puxar peixe
+   cansa e um peixe fisgado com a barra vazia se perde) e **arremessa**: a força é **aprendida** de
+   onde o flutuador caiu, então ele não joga a linha longe demais.
+4. **Espera a fisgada** (até `Jobs/EsperaFisgada`, padrão 60 s), **puxa** como um jogador (larga
+   quando o peixe foge ou a linha tensiona, puxa quando ele cansa), **guarda o peixe** e repete até a
+   quantidade ou até não haver mais peixe no raio.
+
+**Por que precisou de patch:** o flutuador do jogo (`FishingFloat`) **só conhece jogadores** — ele
+guarda o *user id* de quem arremessou e procura o dono na lista de jogadores. Para o companheiro ele
+não achava a vara e **se destruía na hora** (e, pior, podia derrubar o **seu** flutuador). Os patches
+de `CompanionFishPatches` (`Setup`/`GetOwner`/`ReturnBait`) dão ao flutuador do companheiro uma
+**chave própria no ZDO**, resolvem o dono por ela e devolvem a **isca** a ele quando a linha volta
+sem peixe (o vanilla só devolve para jogadores).
+
+> **Fora do núcleo (2.16b):** o mapeamento de **todos** os pontos de pesca da região (grade de raios
+> em volta do local) e o "voltar para casa com a carga cheia" — hoje a margem é procurada **em volta
+> do peixe escolhido** e a carga cheia continua sendo resolvida pelo depósito em baú da 2.14.
+
+#### Leitura e HUD
+
+| Onde | O que mostra |
+|---|---|
+| HUD (canto superior esquerdo) | início do trabalho, cada abate/peixe e o encerramento (com o motivo) |
+| `modia_stats` (F5) | `Trabalho: Caçar (2/5, 1.4 min) — caçando Javali` (ou `nenhum`) |
+| `modia_job` sem argumento | o trabalho atual |
+| log do BepInEx | cada passo relevante, deduplicado |
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
@@ -502,6 +586,9 @@ O menu (**Y**) mostra `Carga: 123/300 kg` no painel **Coleta** quando existe tet
 - **Comida** — `ComerAutomaticamente`, `LimiarHP`, `LimiarStamina`, `IntervaloVerificacao`
 - **Resistencia** — `StaminaLigada`, `StaminaBase`, `GastoCorrida`, `GastoNado`, `TaxaRegen`, `AtrasoRegen`
 - **Skills** — `EvoluirSkills`, `AvisarSubidaDeNivel`, `PerderSkillsAoMorrer`, `FatorPerdaAoMorrer`
+- **Jobs** — `Ligado`, `QuantidadePadrao`, `TempoMaximoPorJob`, `IntervaloVarredura`, `RaioHunt`,
+  `RaioFish`, `DistanciaArremesso`, `EsperaFisgada`, `StaminaMinimaArremesso`, `FornecerVara`,
+  `VaraPrefab`, `FornecerIsca`, `IscaPrefab`, `IscaQuantidade`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -521,7 +608,8 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu...
+│  ├─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Deposit, ToolKeeper, Hover, Menu...
+│  │  └─ Jobs/                # trabalhos: CompanionJob, CompanionJobQueue, HuntJob (caçar), FishJob (pescar) + patches do flutuador
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -746,6 +834,41 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
 8. **Nada mais mudou:** spawn/dismiss, follow, combate, coleta, loot, comida/stamina/skills, movimento,
    aparência, hover, menu e persistência seguem iguais. Com `Companheiro/PesoMaximo = 0` e
    `Coleta/DepositarAoEncher = false` o comportamento é **exatamente** o da 0.4.1.
+
+### Teste rápido dos trabalhos (Fase 2.16a)
+
+1. **Caçar:** invoque o companheiro (F1), deixe o modo em **Defensivo** ou **Agressivo**
+   (`modia_mode defensive`) e vá a um campo com javalis/cervos.
+   - `modia_job hunt 2` → no HUD: `Trabalho: Caçar (2x)`; no log:
+     `[ModIA] Caçar: catalogo com N tipo(s) de presa` e `indo atrás de 'Javali' a 12,3 m`.
+   - Ele **persegue e ataca** com a arma que tem (o combate de sempre) e, ao abater, sai no log
+     `abati 'Javali' (abate 1/2)` + `Abate: Javali (1/2)` no HUD; em seguida ele **cata o couro** (a
+     camada de loot da 2.12: `Loot: ...` no log) e só então vai atrás do próximo.
+   - Com a quantidade atingida: `[ModIA] Trabalho Caçar encerrado (meta atingida): 2/2 em 1,4 min.` e
+     ele volta a te seguir. `modia_stats` mostra `Trabalho: nenhum (use modia_job hunt|fish)`.
+   - **Modo passivo:** `modia_mode passive` + `modia_job hunt` → recusa com aviso ("ele nao ataca
+     nada"); trocar para passive **durante** o trabalho encerra a caça.
+2. **Caça sem fauna:** num lugar sem animais, `modia_job hunt` → depois de 3 varreduras (~6 s)
+   `Trabalho Caçar encerrado (acabou a caça: nenhuma fauna a menos de 40 m)`.
+3. **Pescar:** vá a uma margem com peixe por perto (ex.: o mar ou um rio), com o companheiro a até
+   ~30 m de água com peixe, e `modia_job fish`.
+   - No log: `Pescar: vara fornecida ao companheiro ('FishingRod')` (na primeira vez),
+     `indo atras de 'Fish1' a ... m (isca 'FishingBait', margem a ... m)`, `arremessei em 'Fish1'
+     (14 m, 58% de forca, isca 'FishingBait')`, `linha fora 14 m (isca 'FishingBait')`.
+   - Ele fica na margem com a **vara na mão** esperando a fisgada; quando o peixe morde:
+     `fisgou — puxando`, depois `'Fish1' na linha — puxando` e, ao puxar até o fim,
+     `peguei 'Fish1' (peixe 1/...)` + `Pesquei: Fish1 (1)` no HUD.
+   - Se o peixe fugir/arrebentar a linha, o log diz (`escapou`) e ele **arremessa de novo** — sem
+     travar. `modia_stats` mostra o progresso. `modia_job stop` (ou `modia_stop`) para tudo e ele
+     **guarda a vara**.
+   - **Sem vara e sem `Jobs/FornecerVara`:** `modia_job fish` recusa com "Nao da para pescar: sem vara
+     de pesca ('FishingRod')".
+4. **Prioridade:** comece um `modia_job hunt` e, no meio, mande `modia_gather wood 20`: o trabalho
+   **pausa** (`Trabalho: pausado enquanto a coleta esta no comando.`) e **retoma** quando a coleta
+   acabar. `modia_stop` para os dois.
+5. **Nada mais mudou:** spawn/dismiss, follow, combate, coleta, loot, comida/stamina/skills, peso/
+   depósito/tool keeper, movimento, aparência, hover, menu e persistência seguem iguais — com
+   `Jobs/Ligado = false` o `modia_job` recusa e o mod fica exatamente como na 0.4.2.
 
 ---
 

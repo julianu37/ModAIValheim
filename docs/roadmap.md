@@ -42,6 +42,9 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.12 | Loot: catar os drops das criaturas abatidas pelo companheiro (patch em `Character.OnDeath` + estado de loot) | ✅ |
 | 2.13 | **Membro da equipe**: comida (come sozinho do inventário), resistência (stamina) e habilidades que evoluem | ✅ |
 | 2.14 | **Peso, depósito em baú e tool keeper**: teto de peso, ao encher leva a carga ao baú e retoma (ou pausa), ferramenta emprestada/devolvida do baú | ✅ |
+| **2.16** | **Trabalhos (jobs)**: a mesma interface de "aponte para o trabalho" | 🔄 |
+| 2.16a | Infraestrutura de jobs (`CompanionJobQueue`: um trabalho por vez + prioridade explícita) + **caçar** e **pescar** (`modia_job hunt\|fish\|stop`) | ✅ |
+| 2.16b | Demais trabalhos: **cultivar** (zonas de fazenda), **cozinhar/bebidas** e **fundições**; caçar **pássaros** (arco) e UI do trabalho (menu/hover) | ⏳ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -152,3 +155,40 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   as resistências, pontuação por tier/qualidade/dano/durabilidade, quebrada descartada) e **devolve**
   a emprestada quando a coleta termina (`Coleta/GuardarFerramentaNaoUsada`) — ferramenta **criada**
   nunca é devolvida. Console ganhou `modia_deposit` e o `modia_stats` mostra carga/depósito/empréstimos.
+- **Fase 2.16a (0.4.3)** — **infraestrutura de TRABALHOS + CAÇAR e PESCAR**. O companheiro deixou de
+  ser só "segue e coleta": o jogador **aponta para o trabalho** (`modia_job hunt|fish|stop`) e ele
+  **executa de ponta a ponta** (o "aponte-os para o seu trabalho" do `docs/vision.md`).
+  - **Fila única (`Companion/Jobs/CompanionJobQueue.cs`):** **um** trabalho ativo por vez; o
+    controlador ativo dirige o companheiro e, ao terminar (meta, fauna esgotada, sem peixe, tempo
+    esgotado), a fila fecha a conta (log + HUD) e ele **volta a seguir** você. Um comando novo
+    **substitui** o trabalho em andamento; `modia_stop` para coleta + trabalho + combate.
+  - **Base (`CompanionJob.cs`):** máquina de estados por trabalho (`OnStart`/`OnTick`/`OnStop`), sem
+    `MonoBehaviour`, sem nada por frame (tick na camada `CompanionAI.UpdateJob`, ~20 Hz, varredura com
+    intervalo e buffers reaproveitados) e **log deduplicado**.
+  - **Prioridade explícita na ordem das camadas:** `combate > coleta > depósito > loot > TRABALHO >
+    follow` (coleta e viagem ao baú **pausam** o trabalho, que retoma sozinho e não conta o tempo
+    parado; o caçador espera o `CompanionLoot` catar o abate antes de caçar de novo). Dois donos novos
+    no "dono único do movimento por frame": `MovementOwner.Hunt`/`MovementOwner.Fish`.
+  - **CAÇAR (`HuntJob.cs`):** procura a **fauna** no raio (`Jobs/RaioHunt` 40 m) que **deixa algo
+    cair** — o catálogo é lido dos prefabs do jogo (`Character` + `CharacterDrop`), então criaturas de
+    mods entram sozinhas; nunca jogadores, **domados**, chefes ou o próprio companheiro. A presa é
+    **entregue ao combate existente** (o mesmo caminho do modo Aggressive: mira, pathfinding,
+    animação, hitbox, dano, bloqueio e stamina são do motor nativo), o abate é contado e o que caiu é
+    **catado pelo `CompanionLoot`** (2.12) antes da próxima presa. Tem a mesma "coleira" do combate,
+    troca por um alvo bem mais perto antes do primeiro golpe e veta 60 s a presa que escapou.
+    Pássaros (`RandomFlyingBird`) ficaram para a 2.16b (não são `Character`: exigem estado de arco).
+  - **PESCAR (`FishJob.cs` + `CompanionFishPatches.cs`):** pesca **de verdade** com o flutuador do
+    jogo — margem com linha de visão, vara e isca do inventário (a isca escolhida pela chance em
+    `Fish.m_baits`), arremesso com **força aprendida** de onde o flutuador caiu, espera da fisgada,
+    puxão alternado (larga quando o peixe foge/linha tensiona) e o peixe guardado no inventário;
+    respeita a **stamina** (descansa antes de arremessar) e a perícia de pesca vale (puxar mais
+    rápido/barato). O `FishingFloat` do jogo **só conhece jogadores**, então três patches
+    (`Setup`/`GetOwner`/`ReturnBait`) dão a ele uma **chave própria no ZDO** — sem eles o flutuador do
+    companheiro se destruía na hora (e podia derrubar o do jogador). Fora do núcleo (2.16b): a grade
+    completa de pontos de margem (`MapShore`) e o "voltar para casa com a carga" (o depósito da 2.14
+    já cobre).
+  - **Config `[Jobs]`** (PT-BR): `Ligado` (padrão `true`, e ele **nunca** começa um trabalho sozinho),
+    `QuantidadePadrao`, `TempoMaximoPorJob` (20 min), `IntervaloVarredura`, `RaioHunt`, `RaioFish`,
+    `DistanciaArremesso`, `EsperaFisgada`, `StaminaMinimaArremesso`, `FornecerVara`/`VaraPrefab`,
+    `FornecerIsca`/`IscaPrefab`/`IscaQuantidade`. Console: `modia_job` + a linha do trabalho no
+    `modia_stats`; HUD (canto superior esquerdo) com início, cada abate/peixe e o encerramento.

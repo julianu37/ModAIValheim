@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Jotunn.Entities;
 using Jotunn.Managers;
+using ModAIValheim.Companion.Jobs;
 
 namespace ModAIValheim.Companion
 {
@@ -14,6 +15,9 @@ namespace ModAIValheim.Companion
     ///   <item><description><c>modia_equip &lt;prefab&gt; [slot]</c> — equipa arma ou armadura.</description></item>
     ///   <item><description><c>modia_drop &lt;prefab&gt; [qtd]</c> — dropa item do inventário do companheiro.</description></item>
     ///   <item><description><c>modia_mode [passive|defensive|aggressive]</c> — mostra/define o modo de combate.</description></item>
+    ///   <item><description><c>modia_gather &lt;recurso&gt; [qtd]</c> — coleta de recursos (Fase 2.4b).</description></item>
+    ///   <item><description><c>modia_stop</c> — para coleta, trabalho e combate (volta a seguir você).</description></item>
+    ///   <item><description><c>modia_job &lt;hunt|fish|stop&gt; [qtd]</c> — trabalhos: caçar e pescar (Fase 2.16).</description></item>
     ///   <item><description><c>modia_stats</c> — comidas ativas, resistência (stamina) e perícias do companheiro (Fase 2.13).</description></item>
     /// </list>
     ///
@@ -44,10 +48,12 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new StateCommand());
             manager.AddConsoleCommand(new StatsCommand());
             manager.AddConsoleCommand(new DepositCommand());
+            manager.AddConsoleCommand(new JobCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
-                "modia_mode, modia_gather, modia_stop, modia_state, modia_stats, modia_deposit.");
+                "modia_mode, modia_gather, modia_stop, modia_state, modia_stats, modia_deposit, " +
+                "modia_job.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -373,27 +379,42 @@ namespace ModAIValheim.Companion
             public override string Name => "modia_stop";
 
             public override string Help =>
-                "Para a coleta de recursos do companheiro (ele volta a seguir o jogador) e " +
-                "larga qualquer alvo de combate.";
+                "Para a coleta de recursos e o trabalho (cacar/pescar) do companheiro (ele volta a " +
+                "seguir o jogador) e larga qualquer alvo de combate.";
 
             public override void Run(string[] args, Terminal context)
             {
                 bool wasHarvesting = CompanionHarvest.IsActive;
                 int collected = CompanionHarvest.Collected;
+                bool hadJob = CompanionJobQueue.HasJob;
+                string jobName = CompanionJobQueue.CurrentName;
 
                 CompanionHarvest.Stop("comando modia_stop");
+                CompanionJobQueue.Cancel(Current, "comando modia_stop");
 
                 if (Current != null)
                 {
                     Current.ClearCombatTarget();
                 }
 
-                Report(
-                    context,
-                    wasHarvesting
-                        ? $"[ModIA] Coleta parada ({collected} item(ns) coletado(s)); " +
-                          "o companheiro voltou a seguir o jogador."
-                        : "[ModIA] O companheiro não estava coletando; alvo de combate limpo.");
+                if (wasHarvesting)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Coleta parada ({collected} item(ns) coletado(s)); " +
+                        "o companheiro voltou a seguir o jogador.");
+                    return;
+                }
+
+                if (hadJob)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Trabalho '{jobName}' parado; o companheiro voltou a seguir o jogador.");
+                    return;
+                }
+
+                Report(context, "[ModIA] O companheiro nao estava trabalhando; alvo de combate limpo.");
             }
 
             public override void Run(string[] args)
@@ -521,11 +542,129 @@ namespace ModAIValheim.Companion
                     context,
                     $"[ModIA] Deposito: {CompanionDeposit.Describe()} | " +
                     $"Tool keeper: {CompanionToolKeeper.Describe()}.");
+
+                // Fase 2.16: trabalhos (caçar/pescar) — a fila única.
+                Report(
+                    context,
+                    $"[ModIA] Trabalho: {CompanionJobQueue.Describe()} " +
+                    "(prioridade: combate > coleta > deposito > loot > trabalho > follow).");
             }
 
             public override void Run(string[] args)
             {
                 Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_job <hunt|fish|stop> [qtd]
+        // ---------------------------------------------------------------------
+
+        private sealed class JobCommand : ConsoleCommand
+        {
+            public override string Name => "modia_job";
+
+            public override string Help =>
+                "Manda o companheiro executar um trabalho (um por vez, ate ele acabar). " +
+                "Uso: modia_job <hunt|fish|stop> [quantidade]. " +
+                "Ex.: modia_job hunt 5 | modia_job pescar | modia_job stop. " +
+                "hunt = cacar fauna por perto, abater e catar o que caiu; " +
+                "fish = pescar com vara numa margem proxima; " +
+                "stop = parar o trabalho. Sem quantidade vale Jobs/QuantidadePadrao " +
+                "(0 = sem limite: trabalha enquanto houver o que fazer no raio).";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (args == null || args.Length == 0)
+                {
+                    Report(context, Help);
+                    Report(
+                        context,
+                        $"[ModIA] Trabalho atual: {CompanionJobQueue.Describe()}.");
+                    return;
+                }
+
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                string requested = args[0] != null ? args[0].Trim().ToLowerInvariant() : string.Empty;
+
+                if (requested == "stop" || requested == "parar" || requested == "none")
+                {
+                    if (!CompanionJobQueue.HasJob)
+                    {
+                        Report(context, "[ModIA] O companheiro nao esta num trabalho.");
+                        return;
+                    }
+
+                    string name = CompanionJobQueue.CurrentName;
+                    CompanionJobQueue.Cancel(Current, "comando modia_job stop");
+                    Report(context, $"[ModIA] Trabalho '{name}' parado; ele voltou a seguir o jogador.");
+                    return;
+                }
+
+                int amount = CompanionJobsConfig.DefaultAmount;
+                if (args.Length >= 2 && !int.TryParse(args[1], out amount))
+                {
+                    Report(context, $"[ModIA] Quantidade invalida: '{args[1]}'.");
+                    return;
+                }
+
+                if (amount < 0)
+                {
+                    Report(context, "[ModIA] A quantidade nao pode ser negativa.");
+                    return;
+                }
+
+                CompanionJob job = CreateJob(requested);
+                if (job == null)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Trabalho '{args[0]}' desconhecido. Use: hunt (cacar), fish (pescar) " +
+                        "ou stop.");
+                    return;
+                }
+
+                // Um trabalho novo e o pedido do momento: a coleta anterior para (como o
+                // modia_gather faz com a coleta anterior) para nao disputar o companheiro.
+                CompanionHarvest.Stop("novo trabalho (modia_job)");
+
+                if (CompanionJobQueue.Request(job, Current, amount, "comando modia_job", out string error))
+                {
+                    string limit = amount > 0 ? $"{amount}x" : "sem limite";
+                    Report(context, $"[ModIA] Trabalho iniciado: {job.DisplayName} ({limit}).");
+                    return;
+                }
+
+                Report(context, error);
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+
+            /// <summary>Resolve o nome do trabalho (aceita PT e EN, como os outros comandos).</summary>
+            private static CompanionJob CreateJob(string requested)
+            {
+                switch (requested)
+                {
+                    case "hunt":
+                    case "cacar":
+                    case "caçar":
+                        return new HuntJob();
+
+                    case "fish":
+                    case "pescar":
+                    case "pesca":
+                        return new FishJob();
+
+                    default:
+                        return null;
+                }
             }
         }
 

@@ -80,3 +80,19 @@ SOFTWARE.
 >   ferramenta por `m_toolTier`. A implementação no ModIA é própria (`CompanionDeposit` +
 >   `CompanionToolKeeper` + a camada `CompanionAI.UpdateDeposit`, adaptados ao modelo de estados, ao
 >   dono do movimento por frame e aos buffers reaproveitados), sem cópia de arquivo.
+> - **Fase 2.16a (v0.4.3)** — os **trabalhos (jobs)**: a **infraestrutura de fila única** e os
+>   controladores de **caçar** e **pescar** seguem a lógica de `src/Companions/Jobs/HuntController.cs`
+>   (estados idle/caçando/voltando, catálogo de presas lido dos prefabs — `HuntCatalog.Ensure`, com
+>   `Character` + `CharacterDrop` —, troca por um alvo mais perto, veto por tempo da presa que
+>   escapou, coleira do jogador, abate registrado no `MHR_Loot` e "catar antes de caçar de novo"),
+>   `src/Companions/Jobs/FishController.cs` (estados mover/arremessar/esperar/puxar, escolha da isca
+>   pela chance em `Fish.m_baits`, descanso por stamina antes de arremessar, força de arremesso
+>   aprendida de onde o flutuador caiu — `_castScale` —, puxão alternado por fuga/tensão da linha e
+>   `RestoreGear` ao parar) e `src/Companions/Patches/MHR_FishingPatches.cs` (os três patches do
+>   `FishingFloat` — `Setup`/`GetOwner`/`ReturnBait` — e a chave própria de dono no ZDO, sem a qual o
+>   flutuador do companheiro é destruído), além da ordem de tarefas de
+>   `src/Companions/AI/CompanionAI.cs` (loot → trabalho → follow, com um controlador por vez atrás do
+>   "action mode") e de `src/Companions/Jobs/MHR_JobRules.cs`. A implementação no ModIA é própria
+>   (`CompanionJob`/`CompanionJobQueue`/`HuntJob`/`FishJob`/`CompanionFishPatches`, adaptados ao
+>   modelo de camadas do `CompanionAI`, ao `CompanionLoot` da Fase 2.12, ao "dono único do movimento
+>   por frame" e às seções de config em PT-BR), sem cópia de arquivo.
