@@ -4,8 +4,9 @@ Mod de **companheiro NPC com inteligência artificial** para **Valheim 1.0** (in
 recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`NOTICE.md`](NOTICE.md).
 
 > **Status:** 🚧 em desenvolvimento — Fase 2 (núcleo do NPC). O companheiro já **spawna, segue,
-> equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, frutas…) e
-> mostra **nome + teclas no hover**. Ainda faltam **multiplayer**, **voz/IA** e **backend**.
+> equipa itens, tem aparência de viking, combate, coleta recursos** (madeira, pedra, frutas…),
+> mostra **nome + teclas no hover** e tem um **menu no jogo** (status, aparência, combate, coleta e
+> teclas). Ainda faltam **multiplayer**, **voz/IA** e **backend**.
 
 ---
 
@@ -29,6 +30,7 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | **H** | Dispensar (despawn) |
 | **F3** | Ciclar modo de combate: Passive → Defensive → Aggressive |
 | **F4** | Iniciar/parar a coleta do **recurso padrão** (config `Coleta/RecursoPadrao`, padrão `Wood`) |
+| **Y** | Abrir/fechar o **menu do companheiro** (quando ele estiver a até 5 m) — ver abaixo |
 | `modia_gather <recurso> [qtd]` | Faz o companheiro coletar um recurso (ex.: `modia_gather wood 20`, `modia_gather pedra`) |
 | `modia_stop` | Para a coleta e volta a seguir o jogador (também limpa o alvo de combate) |
 | `modia_inv` | (console, F5) mostra o inventário/itens equipados do companheiro |
@@ -49,6 +51,7 @@ Companheiro
 [F3] Modo de combate: Defensivo
 [F4] Coleta: Madeira (desligada)
 [F1] Invocar / [H] Dispensar
+[Y] Menu
 ```
 
 - A coleta mostra o recurso que o `F4` vai coletar quando está **desligada** e o progresso quando
@@ -56,6 +59,30 @@ Companheiro
 - `[Interface] MostrarDicasNoHover = false` deixa só o nome no hover.
 - Funciona onde o hover do jogo funciona: mira no companheiro, a até ~5 m (mesma distância de
   interação do jogo). Construções, itens e criaturas continuam com o hover normal.
+
+### Menu do companheiro (Fase 2.6b)
+
+Com o companheiro **a até 5 m**, a tecla **`Y`** (config `Teclas/MenuKey`) abre um **painel de
+madeira** no estilo do Valheim, em PT-BR, com cinco seções:
+
+| Seção | O que dá para fazer |
+|---|---|
+| **Status** | Nome, **vida** atual/máxima, **modo de combate** e **estado da coleta** (recurso + progresso) — só leitura, atualizado 2×/s |
+| **Aparência** | Ligar/desligar a aparência personalizada; **cor de pele** e **cor do cabelo/barba** (sliders R/G/B com amostra); **cabelo** e **barba** (lista do jogo + "Padrão do jogo"/"Nenhum") — **aplica em tempo real** |
+| **Combate** | Dropdown **Passivo / Defensivo / Agressivo** |
+| **Coleta** | **Recurso**, **quantidade** (0 = sem limite) e botões **Iniciar** / **Parar** |
+| **Teclas** | Lista **somente leitura** das teclas atuais (invocar, dispensar, modo, coleta, menu) |
+
+- **Fecha** com a mesma tecla, com **ESC** ou pelo botão **Fechar**.
+- Com o painel aberto o **input do jogo é bloqueado** (o jogador não anda, o mouse fica livre para
+  clicar nos controles) e as demais teclas do mod (spawn/modo/coleta) ficam suspensas. Ao fechar, tudo
+  é liberado — inclusive se o companheiro morrer/desaparecer ou o jogador se afastar (o painel fecha
+  sozinho, sem deixar o jogador travado).
+- As mudanças de aparência, modo e coleta são **gravadas no `.cfg`** (valem para o próximo spawn).
+- Enquanto o cursor está em um campo de texto, as teclas são do campo (digitar "y" no recurso não
+  fecha o painel).
+- O painel é **arrastável** (segure e mova pelo fundo) e o layout é montado **uma única vez** por
+  sessão de mundo — não há recriação de UI por frame.
 
 ### Coleta de recursos (Fase 2.4b)
 
@@ -88,7 +115,7 @@ até não haver mais nó no raio.
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
-- **Teclas** — `SpawnKey` (F1), `DismissKey` (H), `CombatModeKey` (F3), `HarvestKey` (F4)
+- **Teclas** — `SpawnKey` (F1), `DismissKey` (H), `CombatModeKey` (F3), `HarvestKey` (F4), `MenuKey` (Y)
 - **Companheiro** — `EquiparLoadoutNoSpawn`, `WeaponPrefab`, `ArmorSetPrefabs`
 - **Aparencia** — `AparenciaPadrao`, `CabeloPrefab`, `BarbaPrefab`, `CorPele`, `CorCabelo`
 - **Combate** — `Modo`, `RaioAgressivo`, `RaioDefensivo`, `Coleira`, `AtacarAnimaisNeutros`, `IntervaloVarredura`
@@ -113,7 +140,7 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Appearance, Combat, Harvest...
+│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Appearance, Combat, Harvest, Hover, Menu...
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 

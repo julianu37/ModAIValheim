@@ -17,6 +17,8 @@ namespace ModAIValheim
     /// Fase 2.4a: modo de combate (Passive/Defensive/Aggressive) com seleção de alvo e revide.
     /// Fase 2.4b: coleta de recursos (madeira/pedra/itens) por comando e tecla.
     /// Fase 2.6a: hover do companheiro com o nome e as ações disponíveis (teclas reais da config).
+    /// Fase 2.6b: menu do companheiro dentro do jogo (painel de madeira com status, aparência,
+    /// combate, coleta e teclas), aberto por tecla quando o jogador está perto do companheiro.
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -24,7 +26,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.2.8";
+        public const string PluginVersion = "0.2.9";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -67,6 +69,9 @@ namespace ModAIValheim
 
         // Interface (Fase 2.6a).
         private ConfigEntry<bool> _hoverHints;
+
+        // Menu do mod (Fase 2.6b).
+        private ConfigEntry<KeyCode> _menuKey;
 
         private Harmony _harmony;
 
@@ -272,6 +277,15 @@ namespace ModAIValheim
                 "disponiveis com as teclas configuradas (modo de combate, coleta, invocar/dispensar). " +
                 "Desligado, o hover mostra so o nome.");
 
+            // Menu do mod dentro do jogo (Fase 2.6b).
+            _menuKey = Config.Bind(
+                "Teclas",
+                "MenuKey",
+                KeyCode.Y,
+                "Tecla que abre e fecha o MENU do companheiro (painel de madeira com status, " +
+                "aparencia, combate, coleta e teclas). Abre quando o jogador esta a ate 5 m do " +
+                "companheiro; fecha com a mesma tecla, com ESC ou pelo botao Fechar.");
+
             Log.LogInfo($"{PluginName} v{PluginVersion} carregado (GUID: {PluginGuid}).");
             Log.LogInfo($"Unity: {Application.version} | plataforma: {Application.platform}");
 
@@ -328,6 +342,11 @@ namespace ModAIValheim
             CompanionHover.RegisterLocalization();
             CompanionHover.Configure(_hoverHints);
 
+            // Menu do companheiro dentro do jogo (Fase 2.6b): tokens + tecla + hook da GUI.
+            CompanionMenu.RegisterLocalization();
+            CompanionMenu.Configure(_menuKey);
+            CompanionMenu.Init();
+
             ApplyHarmonyPatches();
             if (_logDetalhado.Value)
             {
@@ -353,10 +372,14 @@ namespace ModAIValheim
         }
 
         /// <summary>
-        /// Teclas de spawn/dismiss, de modo de combate e de coleta (o Tick sai rápido fora do mundo).
+        /// Teclas de spawn/dismiss, de modo de combate, de coleta e do menu do companheiro (o Tick
+        /// sai rápido fora do mundo).
         /// </summary>
         private void Update()
         {
+            // O menu é lido primeiro: com ele aberto, as demais teclas do mod ficam suspensas
+            // (CompanionManager.InputBlocked passa a devolver true).
+            CompanionMenu.Tick();
             CompanionManager.Tick();
             CompanionCombat.Tick();
             CompanionHarvest.Tick();
@@ -371,6 +394,7 @@ namespace ModAIValheim
             }
 
             CompanionPrefab.Unhook();
+            CompanionMenu.Shutdown();
             CompanionHover.Shutdown();
             CompanionManager.Shutdown();
         }

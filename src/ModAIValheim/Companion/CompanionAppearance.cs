@@ -38,12 +38,26 @@ namespace ModAIValheim.Companion
         /// <summary>Valores que desligam o cabelo/barba na config.</summary>
         private static readonly string[] OffTokens = { "none", "off", "0", "-" };
 
-        private static readonly Vector3 DefaultSkinColor = new Vector3(0.92f, 0.82f, 0.74f);
-        private static readonly Vector3 DefaultHairColor = new Vector3(0.62f, 0.45f, 0.3f);
+        /// <summary>Cor de pele assumida quando a config está vazia/inválida.</summary>
+        internal static readonly Vector3 DefaultSkinColor = new Vector3(0.92f, 0.82f, 0.74f);
 
-        private const string HairPrefix = "Hair";
-        private const string BeardPrefix = "Beard";
+        /// <summary>Cor de cabelo/barba assumida quando a config está vazia/inválida.</summary>
+        internal static readonly Vector3 DefaultHairColor = new Vector3(0.62f, 0.45f, 0.3f);
 
+        /// <summary>
+        /// Valor de config que representa "deixe o jogo escolher" (é o default das entries). O
+        /// <see cref="ResolveCustomizationPrefab"/> então pega o primeiro item utilizável.
+        /// </summary>
+        internal const string AutoValue = "";
+
+        /// <summary>Valor de config que desliga o cabelo/barba (cabeça careca).</summary>
+        internal const string NoneValue = "none";
+
+        /// <summary>Prefixo dos itens de cabelo no ObjectDB (<c>Hair1</c>…).</summary>
+        internal const string HairPrefix = "Hair";
+
+        /// <summary>Prefixo dos itens de barba no ObjectDB (<c>Beard1</c>…).</summary>
+        internal const string BeardPrefix = "Beard";
         private static ConfigEntry<bool> _enabled;
         private static ConfigEntry<string> _hairPrefab;
         private static ConfigEntry<string> _beardPrefab;
@@ -62,6 +76,195 @@ namespace ModAIValheim.Companion
             _beardPrefab = beardPrefab;
             _skinColor = skinColor;
             _hairColor = hairColor;
+        }
+
+        // ---------------------------------------------------------------------
+        // API de leitura/escrita ao vivo (menu do mod, Fase 2.6b)
+        // ---------------------------------------------------------------------
+
+        /// <summary>Aparência ligada na config (<c>Aparencia/AparenciaPadrao</c>).</summary>
+        internal static bool Enabled => _enabled == null || _enabled.Value;
+
+        /// <summary>Cor de pele atual (valor da config; cai no padrão se inválida).</summary>
+        internal static Vector3 SkinColor => ParseColor(_skinColor, DefaultSkinColor, "CorPele");
+
+        /// <summary>Cor de cabelo/barba atual (valor da config; cai no padrão se inválida).</summary>
+        internal static Vector3 HairColor => ParseColor(_hairColor, DefaultHairColor, "CorCabelo");
+
+        /// <summary>Cabelo configurado (vazio = automático; "none" = careca).</summary>
+        internal static string HairPrefabName => _hairPrefab != null ? _hairPrefab.Value : string.Empty;
+
+        /// <summary>Barba configurada (vazio = automática; "none" = sem barba).</summary>
+        internal static string BeardPrefabName => _beardPrefab != null ? _beardPrefab.Value : string.Empty;
+
+        /// <summary>Liga/desliga a aparência e reaplica no companheiro ativo (grava a config).</summary>
+        internal static void SetEnabled(bool value)
+        {
+            if (_enabled != null)
+            {
+                _enabled.Value = value;
+            }
+
+            RefreshLive();
+        }
+
+        /// <summary>Troca a cor de pele (grava a config) e aplica no companheiro ativo.</summary>
+        internal static void SetSkinColor(Vector3 color)
+        {
+            WriteColor(_skinColor, color);
+
+            VisEquipment visEq = ActiveVisEquipment();
+            if (visEq != null)
+            {
+                visEq.SetSkinColor(color);
+            }
+        }
+
+        /// <summary>Troca a cor de cabelo/barba (grava a config) e aplica no companheiro ativo.</summary>
+        internal static void SetHairColor(Vector3 color)
+        {
+            WriteColor(_hairColor, color);
+
+            VisEquipment visEq = ActiveVisEquipment();
+            if (visEq != null)
+            {
+                visEq.SetHairColor(color);
+            }
+        }
+
+        /// <summary>Troca o cabelo (grava a config) e aplica no companheiro ativo.</summary>
+        internal static void SetHairPrefab(string prefabName)
+        {
+            if (_hairPrefab != null)
+            {
+                _hairPrefab.Value = prefabName ?? string.Empty;
+            }
+
+            VisEquipment visEq = ActiveVisEquipment();
+            if (visEq != null)
+            {
+                ApplyCustomizationItem(visEq, _hairPrefab, HairPrefix, true);
+            }
+        }
+
+        /// <summary>Troca a barba (grava a config) e aplica no companheiro ativo.</summary>
+        internal static void SetBeardPrefab(string prefabName)
+        {
+            if (_beardPrefab != null)
+            {
+                _beardPrefab.Value = prefabName ?? string.Empty;
+            }
+
+            VisEquipment visEq = ActiveVisEquipment();
+            if (visEq != null)
+            {
+                ApplyCustomizationItem(visEq, _beardPrefab, BeardPrefix, false);
+            }
+        }
+
+        /// <summary>
+        /// Reaplica do zero a aparência no companheiro ativo (usado ao ligar/desligar). Ligada,
+        /// aplica a config; desligada, devolve o visual "cru" do prefab (sem cabelo/barba e com as
+        /// cores neutras do jogo).
+        /// </summary>
+        internal static void RefreshLive()
+        {
+            VisEquipment visEq = ActiveVisEquipment();
+            if (visEq == null)
+            {
+                return;
+            }
+
+            if (Enabled)
+            {
+                ApplyToEquipment(visEq);
+                return;
+            }
+
+            visEq.SetSkinColor(Vector3.one);
+            visEq.SetHairColor(Vector3.one);
+            visEq.SetHairItem(0);
+            visEq.SetBeardItem(0);
+            Plugin.Log.LogInfo("[ModIA] Aparência: desligada (visual padrão do jogo).");
+        }
+
+        /// <summary>
+        /// Nomes dos itens de customização utilizáveis com o prefixo dado (<c>Hair</c>/<c>Beard</c>),
+        /// ordenados — é a lista oferecida pelo menu do mod. Exclui os "None" e os que não têm
+        /// <c>attach</c> (que o <c>VisEquipment</c> não sabe instanciar). Uma varredura por abertura
+        /// do menu, nunca por frame.
+        /// </summary>
+        internal static List<string> GetCustomizationNames(string prefix)
+        {
+            List<string> names = new List<string>();
+
+            ObjectDB database = ObjectDB.instance;
+            if (database == null)
+            {
+                return names;
+            }
+
+            List<ItemDrop> items = database.GetAllItems(ItemDrop.ItemData.ItemType.Customization, prefix);
+            for (int i = 0; i < items.Count; i++)
+            {
+                ItemDrop item = items[i];
+                if (item == null)
+                {
+                    continue;
+                }
+
+                string name = Utils.GetPrefabName(item.gameObject);
+                if (name.IndexOf("none", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    continue;
+                }
+
+                if (!IsAttachableCustomization(item.gameObject))
+                {
+                    continue;
+                }
+
+                if (!names.Contains(name))
+                {
+                    names.Add(name);
+                }
+            }
+
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            return names;
+        }
+
+        private static VisEquipment ActiveVisEquipment()
+        {
+            CompanionAI companion = CompanionManager.ActiveCompanion;
+            if (companion == null)
+            {
+                return null;
+            }
+
+            VisEquipment visEq = companion.GetComponent<VisEquipment>();
+            if (visEq == null)
+            {
+                Plugin.Log.LogWarning(
+                    "[ModIA] Companheiro sem VisEquipment; mudança de aparência ignorada.");
+            }
+
+            return visEq;
+        }
+
+        private static void WriteColor(ConfigEntry<string> entry, Vector3 color)
+        {
+            if (entry == null)
+            {
+                return;
+            }
+
+            entry.Value = string.Format(
+                CultureInfo.InvariantCulture,
+                "{0:0.###};{1:0.###};{2:0.###}",
+                color.x,
+                color.y,
+                color.z);
         }
 
         /// <summary>
@@ -89,8 +292,17 @@ namespace ModAIValheim.Companion
                 return;
             }
 
-            ApplyColors(visEq, ParseColor(_skinColor, DefaultSkinColor, "CorPele"),
-                ParseColor(_hairColor, DefaultHairColor, "CorCabelo"));
+            ApplyToEquipment(visEq);
+        }
+
+        /// <summary>
+        /// Aplica a aparência da config em um <see cref="VisEquipment"/> (usado no spawn e no
+        /// refresh ao vivo do menu). Não checa <see cref="Enabled"/>: quem decide se aplica ou
+        /// "limpa" é o chamador.
+        /// </summary>
+        private static void ApplyToEquipment(VisEquipment visEq)
+        {
+            ApplyColors(visEq, SkinColor, HairColor);
 
             ApplyCustomizationItem(visEq, _hairPrefab, HairPrefix, true);
             ApplyCustomizationItem(visEq, _beardPrefab, BeardPrefix, false);
@@ -172,7 +384,17 @@ namespace ModAIValheim.Companion
 
             if (IsDisabled(configured))
             {
-                Plugin.Log.LogInfo($"[ModIA] Aparência: {label} desligado na config.");
+                // Hash 0 = sem item: o VisEquipment desanexa o cabelo/barba atual (é o "careca").
+                if (isHair)
+                {
+                    visEq.SetHairItem(0);
+                }
+                else
+                {
+                    visEq.SetBeardItem(0);
+                }
+
+                Plugin.Log.LogInfo($"[ModIA] Aparência: {label} desligado.");
                 return;
             }
 
@@ -213,6 +435,12 @@ namespace ModAIValheim.Companion
             }
 
             return false;
+        }
+
+        /// <summary>True se o texto de config significa "sem cabelo/barba" (usado pelo menu).</summary>
+        internal static bool IsDisabledValue(string value)
+        {
+            return IsDisabled(value);
         }
 
         /// <summary>

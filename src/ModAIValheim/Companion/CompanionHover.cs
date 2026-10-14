@@ -49,6 +49,7 @@ namespace ModAIValheim.Companion
         private const string TokenHarvestOff = "$modia_hover_harvest_off";
         private const string TokenInvoke = "$modia_hover_invoke";
         private const string TokenDismiss = "$modia_hover_dismiss";
+        private const string TokenMenu = "$modia_hover_menu";
 
         // Idiomas do jogo (constantes de Localization.LocalizationConstants no assembly 1.0.17).
         // O Jotunn SEMPRE carrega o inglês e, depois, o idioma do jogador (LocalizationManager.
@@ -135,6 +136,7 @@ namespace ModAIValheim.Companion
             localization.AddTranslation(language, TokenHarvestOff, "desligada");
             localization.AddTranslation(language, TokenInvoke, "Invocar");
             localization.AddTranslation(language, TokenDismiss, "Dispensar");
+            localization.AddTranslation(language, TokenMenu, "Menu");
         }
 
         /// <summary>
@@ -240,6 +242,9 @@ namespace ModAIValheim.Companion
                     Key(CompanionManager.SpawnKey) + " " + Text(TokenInvoke, "Invocar") + " / " +
                     Key(CompanionManager.DismissKey) + " " + Text(TokenDismiss, "Dispensar");
 
+            // Descobribilidade do menu do mod (Fase 2.6b).
+            text += "\n" + Key(CompanionMenu.MenuKey) + " " + Text(TokenMenu, "Menu");
+
             return text;
         }
 
@@ -327,6 +332,7 @@ namespace ModAIValheim.Companion
             stamp = (stamp * 397) ^ (int)CompanionManager.SpawnKey;
             stamp = (stamp * 397) ^ (int)CompanionManager.DismissKey;
             stamp = (stamp * 397) ^ (int)CompanionHarvest.HarvestKey;
+            stamp = (stamp * 397) ^ (int)CompanionMenu.MenuKey;
             stamp = (stamp * 397) ^ (CompanionHarvest.IsActive ? 1 : 0);
             stamp = (stamp * 397) ^ (CompanionHarvest.HasLimit ? 1 : 0);
             stamp = (stamp * 397) ^ CompanionHarvest.Collected;

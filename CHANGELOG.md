@@ -3,6 +3,52 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.2.9] — 2026-10-13
+
+### Adicionado
+- **Menu do companheiro dentro do jogo** (Fase 2.6b): um **painel de madeira** no estilo Valheim
+  (Jotunn `GUIManager`) aberto pela tecla configurável **`Y`** quando o jogador está a até **5 m** do
+  companheiro. Fecha com a mesma tecla, com **ESC** ou pelo botão **Fechar**. Todo o texto é PT-BR.
+  - **Status** — nome (token localizado), **vida** atual/máxima, **modo de combate** e **estado da
+    coleta** (recurso + progresso), atualizado 2×/s com o painel aberto.
+  - **Aparência** — ligar/desligar a aparência personalizada, **cor de pele** e **cor de
+    cabelo/barba** (3 sliders R/G/B cada, com amostra da cor) e dropdowns de **cabelo** e **barba**
+    (lista montada dos itens `Customization` do `ObjectDB` + "Padrão do jogo"/"Nenhum"). As mudanças
+    **aplicam em tempo real** no companheiro (`VisEquipment.SetSkinColor`/`SetHairColor`/
+    `SetHairItem`/`SetBeardItem`) e são gravadas no `.cfg`.
+  - **Combate** — dropdown **Passivo / Defensivo / Agressivo** ligado ao `CompanionCombat`.
+  - **Coleta** — campo de **recurso**, campo de **quantidade** (0 = sem limite) e botões
+    **Iniciar**/**Parar** ligados ao `CompanionHarvest`.
+  - **Teclas** — lista **somente leitura** das teclas atuais (invocar, dispensar, modo, coleta e menu).
+- Config `[Teclas] MenuKey` (`KeyCode`, padrão `Y`).
+- `CompanionMenu`: painel + controles (montados **uma vez** e só mostrados/escondidos depois),
+  bloqueio do input do jogo com o painel aberto (`GUIManager.BlockInput`) e fechamento automático se o
+  companheiro morrer/desaparecer ou o jogador se afastar (nunca deixa o jogador travado).
+- API ao vivo em `CompanionAppearance` (`Enabled`, `SkinColor`, `HairColor`, `SetSkinColor`,
+  `SetHairColor`, `SetHairPrefab`, `SetBeardPrefab`, `SetEnabled`, `GetCustomizationNames`) e
+  `CompanionAppearance.IsDisabledValue`; `"none"` agora **desanexa** cabelo/barba (hash 0) em vez de
+  só ignorar.
+- `CompanionManager.GameUiCapturesInput()` (guardas de input sem considerar o próprio menu).
+- Tokens de localização do menu (34) no `LocalizationManager` do Jotunn, em `Portuguese_Brazilian` e
+  `English`, com fallback PT-BR em código.
+- O hover (Fase 2.6a) agora também mostra a linha `[Y] Menu`.
+
+### Alterado
+- `CompanionManager.InputBlocked()` passa a devolver `true` com o menu do mod aberto — as teclas de
+  spawn/dismiss/modo/coleta ficam suspensas enquanto o painel está aberto.
+- `Plugin.Update` lê o menu **antes** das demais teclas do mod.
+
+### Notas
+- O `ESC` não abre o menu de pausa do jogo com o painel aberto: o `BlockInput(true)` do Jotunn faz
+  `TextInput.IsVisible()` devolver `true`, o que desarma o `Menu.Update` do jogo.
+- Com o campo de recurso/quantidade em foco, as teclas (inclusive a do menu) são do campo — digitar
+  "y" no recurso não fecha o painel.
+- Como no resto do mod, a mudança de aparência só **replica** para os demais clientes a partir do dono
+  do ZDO (multiplayer completo é a Fase 2.5).
+- Ficou de fora da v1 (ver `docs/roadmap.md`): renomear o companheiro (campo somente leitura), nomes
+  localizados dos penteados (o dropdown usa o nome do prefab, `Hair1`…), e abrir o menu por **mira**
+  (a abertura usa a distância, como o alcance do hover).
+
 ## [0.2.8] — 2026-10-13
 
 ### Adicionado

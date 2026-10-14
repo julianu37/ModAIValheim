@@ -33,7 +33,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.4b-fix | Coleta de madeira: derrubar árvores (seguir a cascata tora→toras menores) + pontuação por rendimento real | ✅ |
 | **2.6** | **Interface** | 🔄 |
 | 2.6a | Hover do companheiro: nome + ações com as teclas (PT-BR, tokens de localização) | ✅ |
-| 2.6b | Menu do companheiro (painel Jotunn `GUIManager`) | ⏳ |
+| 2.6b | Menu do companheiro (painel Jotunn `GUIManager`): status, aparência ao vivo, combate, coleta e teclas | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -64,3 +64,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 - **Fase 2.6a (0.2.8)** — **hover do companheiro**: patch em `Character.GetHoverText`/
   `GetHoverName` (só para o NPC do mod) mostrando o nome e o mapa de teclas, com os rótulos em
   tokens do `LocalizationManager` do Jotunn e o texto cacheado por mudança de estado.
+- **Fase 2.6b (0.2.9)** — **menu do companheiro**: painel de madeira do `GUIManager` (Jotunn) aberto
+  pela tecla `Y` com o NPC a até 5 m, com status, aparência **ao vivo** (`VisEquipment`),
+  modo de combate, coleta e a lista de teclas. Input bloqueado enquanto aberto (`BlockInput`),
+  controles montados uma vez e fechamento automático se o companheiro sumir/afastar.

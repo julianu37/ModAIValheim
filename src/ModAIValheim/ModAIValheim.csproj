@@ -83,6 +83,22 @@
       <HintPath>$(MANAGED_PATH)\UnityEngine.AnimationModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+
+    <!-- UI do Unity: usada pelo menu do mod (GUIManager do Jotunn + controles nativos).
+         Dropdown/Slider/InputField/Toggle/Text/Image vem de UnityEngine.UI; Font/Text de
+         TextRenderingModule; Canvas/CanvasRenderer de UIModule. -->
+    <Reference Include="UnityEngine.UI">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.UI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.UIModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.UIModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.TextRenderingModule">
+      <HintPath>$(MANAGED_PATH)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
 
   <!-- Pos-build: copia a DLL do mod para BepInEx\plugins -->

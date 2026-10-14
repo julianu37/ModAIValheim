@@ -33,7 +33,9 @@ dependências. Leia este arquivo antes de agir.
 - net472 sem Developer Pack: pacote NuGet `Microsoft.NETFramework.ReferenceAssemblies`.
 - Referências (`assembly_valheim`, `UnityEngine*`, `BepInEx`, `0Harmony`, `Jotunn`) via `HintPath`
   com `Private=false` (não copiar para a saída). `assembly_utils` (ZInput/Utils) e
-  `assembly_guiutils` (Localization) também são referenciados do mesmo jeito.
+  `assembly_guiutils` (Localization) também são referenciados do mesmo jeito. O menu do mod
+  (Fase 2.6b) usa também `UnityEngine.UI`, `UnityEngine.UIModule` e `UnityEngine.TextRenderingModule`
+  (controles do Unity + fontes).
 - **Publicizer:** `BepInEx.AssemblyPublicizer.MSBuild` 0.4.3 publiciza as assemblies do jogo em
   compile-time (o runtime é liberado pelo `IgnoresAccessChecksTo` gerado). Habilite com
   `<Publicize>true</Publicize>` dentro do `<Reference>` — a forma `<Publicize Include="..."/>`

@@ -49,9 +49,32 @@ namespace ModAIValheim.Companion
 
         /// <summary>
         /// True quando o input do mod deve ser ignorado: sem personagem no mundo, com menu/console
-        /// abertos ou com o chat em foco (digitar "f2" no chat não pode ciclar o modo de combate).
+        /// abertos, com o chat em foco (digitar "f2" no chat não pode ciclar o modo de combate) ou
+        /// com o <b>menu do mod</b> aberto (Fase 2.6b) — enquanto ele está aberto, as teclas de
+        /// spawn/dismiss/modo/coleta ficam suspensas e quem responde é o próprio menu.
         /// </summary>
         internal static bool InputBlocked()
+        {
+            if (Player.m_localPlayer == null || Menu.IsVisible() || Console.IsVisible())
+            {
+                return true;
+            }
+
+            if (CompanionMenu.IsOpen)
+            {
+                return true;
+            }
+
+            Chat chat = Chat.instance;
+            return chat != null && chat.HasFocus();
+        }
+
+        /// <summary>
+        /// Guardas de input "de fora" do mod (sem considerar o menu do mod): personagem no mundo,
+        /// sem menu/console do jogo abertos e sem o chat em foco. É o que o <see cref="CompanionMenu"/>
+        /// usa para decidir se a tecla de menu pode ser lida.
+        /// </summary>
+        internal static bool GameUiCapturesInput()
         {
             if (Player.m_localPlayer == null || Menu.IsVisible() || Console.IsVisible())
             {
