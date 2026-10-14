@@ -42,6 +42,7 @@ recriado do zero para a versão atual). Projeto **pessoal de estudo** — ver [`
 | `modia_equip <prefab> [slot]` | equipa arma/armadura |
 | `modia_drop <prefab> [qtd]` | dropa item do companheiro |
 | `modia_mode [passive\|defensive\|aggressive]` | define/consulta o modo de combate |
+| `modia_stats` | (console, F5) mostra comidas ativas, resistência (stamina) e perícias do companheiro |
 
 Todas as teclas são configuráveis em `BepInEx\config\modia.companion.cfg`.
 
@@ -72,7 +73,7 @@ madeira** no estilo do Valheim, em PT-BR, com cinco seções:
 
 | Seção | O que dá para fazer |
 |---|---|
-| **Status** | Nome, **vida** atual/máxima, **modo de combate** e **estado da coleta** (recurso + progresso) — só leitura, atualizado 2×/s |
+| **Status** | Nome, **vida** atual/máxima, **modo de combate**, **comida ativa** (`n/3`) e **resistência** (`atual/máx`) — só leitura, atualizado 2×/s |
 | **Aparência** | Ligar/desligar a aparência personalizada; **cor de pele** e **cor do cabelo/barba** (sliders R/G/B com amostra); **cabelo** e **barba** (lista do jogo + "Padrão do jogo"/"Nenhum") — **aplica em tempo real** |
 | **Combate** | Dropdown **Passivo / Defensivo / Agressivo** |
 | **Coleta** | **Recurso** (dropdown com os materiais conhecidos — ver a [tabela](#materiais-suportados-fase-28) — mais **Outro…** para digitar qualquer item), **quantidade** (0 = sem limite) e botões **Iniciar** / **Parar** |
@@ -319,6 +320,100 @@ pega:
 > do combate ele ignora a fauna passiva (item #14). Criaturas **hostis** (Greydwarf, esqueleto,
 > Neck) ele já ataca nos modos Defensive/Aggressive — e o loot funciona igual.
 
+### Comida, resistência e habilidades (Fase 2.13)
+
+O companheiro deixou de ser decorativo: ele **come**, **cansa** e **evolui habilidades** — como um
+membro da equipe.
+
+#### Comida — ele come sozinho
+
+Com comida no **próprio inventário**, ele se alimenta sem você mandar:
+
+```
+[ModIA] Comida: o companheiro comeu 'CookedMeat' (slot 0) — +40 vida, +30 stamina, regen 2/10s,
+       queima 1500s (comidas ativas: 1/3).
+[ModIA] Comida: acabou o efeito de 'CookedMeat' (slot 0); o companheiro vai comer de novo.
+```
+
+> Os números vêm do próprio item (`m_food`, `m_foodStamina`, `m_foodRegen`, `m_foodBurnTime`) — a
+> linha do log é só um exemplo.
+
+- **Bônus iguais aos do jogador:** vida máxima, stamina máxima e **regeneração de vida** (a cada
+  10 s), com a **curva de queima** do jogo (`base × pow(restante/total, 0.3)`: comida quase acabando
+  entrega quase nada) e o **efeito de status** da comida (sopas, tortas, hidromel-base…). A
+  regeneração passa pelo multiplicador dos efeitos de status — **Molhado/Congelado** atrapalham o
+  companheiro como atrapalham você.
+- **3 comidas ao mesmo tempo** (o mesmo limite do jogador) e ele mostra o item na mão com a animação
+  de comer.
+- **Sem desperdício:** ele come quando tem um slot livre, ou — com os 3 cheios — **só** se a
+  **vida** (`Comida/LimiarHP`, 50%) ou a **stamina** (`Comida/LimiarStamina`, 30%) estiverem abaixo
+  do limiar **e** alguma comida já tiver passado de metade da queima (antes disso o próprio jogo
+  recusaria a recarga). Na escolha, ele prefere a comida que cobre a necessidade e, sem necessidade
+  nenhuma, a **mais barata** — o banquete bom fica para a hora do aperto.
+- Desligue com `Comida/ComerAutomaticamente = false` (ele volta a não ter fome).
+
+> **Onde ele guarda a comida?** No inventário dele — as mesmas frutas, carnes e sopas que ele coleta
+> ou que você coloca nele (`modia_equip`/baú). Ele **não** mexe no seu inventário.
+
+#### Resistência (stamina) — correr, atacar, bloquear e minerar gastam
+
+```
+[ModIA] Resistencia: o companheiro ficou SEM stamina (ele para de correr e recupera em alguns segundos).
+[ModIA] Coleta: sem resistência para golpear; o companheiro está recuperando e volta a bater.
+```
+
+- **Correr e nadar** gastam por segundo (`Resistencia/GastoCorrida`, `GastoNado`); **atacar**,
+  **bloquear/parry** e **pular** gastam pelo próprio motor do jogo (o custo do ataque já vem
+  **reduzido pela perícia da arma**, porque ele usa as nossas habilidades).
+- Sem stamina ele **anda em vez de correr** e **não consegue atacar/bloquear** até recuperar (é o
+  mesmo comportamento do jogador) — mas **nunca fica preso**: a recuperação é automática depois de
+  `Resistencia/AtrasoRegen` (1 s) e a taxa é `Resistencia/TaxaRegen` (6/s, mais rápida quanto mais
+  vazio, e multiplicada pelos efeitos de status).
+- **Na coleta**, golpear árvore/pedra também custa stamina; quando falta, ele **espera recuperar**
+  (não veta o nó por "sem progresso").
+- Teto = `Resistencia/StaminaBase` (100, contra os 75 do jogador — margem para ele acompanhar você
+  sem ficar para trás) **+ a stamina da comida ativa**.
+- `Resistencia/StaminaLigada = false` volta ao comportamento antigo (stamina sempre cheia, nada é
+  bloqueado).
+
+#### Habilidades — evoluem com o uso
+
+```
+[ModIA] Skill: 'Companheiro' subiu WoodCutting para 12.
+[ModIA] Skill: 'Companheiro' subiu Pickaxes para 7.
+```
+
+- Ele ganha perícia **fazendo**: derrubar árvore sobe **WoodCutting**, picaretar sobe **Pickaxes**,
+  a arma equipada sobe a perícia dela (espada/machado/clava…), bloquear sobe **Blocking** e correr
+  sobe **Run**. O nível é o **mesmo tipo de progressão** do jogo (`m_increseStep × fator ×
+  Game.m_skillGainRate`; o próximo nível exige `pow(nível+1, 1.5) × 0.5 + 0.5`).
+- O nível **vale de verdade**: **menos custo de stamina** no ataque (como no jogador: a perícia da
+  arma corta até 33% do gasto), **bloqueio mais forte** (o poder do escudo usa a perícia de
+  `Blocking`) e melhores contas de ferramenta.
+  > O **dano** do golpe fica como estava de propósito: o multiplicador de dano do jogo
+  > (`GetRandomSkillFactor`) usa a curva do jogador, que faria um companheiro de perícia **0** bater
+  > com ~40% do dano — ou seja, ficaria **mais fraco que antes** desta fase até treinar muito. Não
+  > valia a pena a regressão (ver `CompanionSkillPatches`).
+- **Aviso de subida de nível** no HUD (canto superior esquerdo), com o nome e o ícone da perícia
+  (`Skills/AvisarSubidaDeNivel`).
+- **Ao morrer** ele perde 25% de cada perícia (como o jogador; `Skills/PerderSkillsAoMorrer` /
+  `Skills/FatorPerdaAoMorrer`) — e a perda entra **antes** do snapshot, então ele volta com o que
+  sobrou.
+- `Skills/EvoluirSkills = false` desliga tudo (níveis ficam em 0).
+
+> **O aviso chato não voltou.** Aquele `"… is tamed but missing tameable or monster AI script!"`
+> aparecia porque o companheiro é domado e não tem `Tameable` (removido de propósito do prefab) — e
+> o patch que o silenciava (v0.3.4) também **matava a evolução de perícia**. Agora o mesmo patch
+> **entrega o ganho** para as habilidades do companheiro e **depois** pula o corpo do jogo, então as
+> duas coisas ficaram certas ao mesmo tempo (ver `CompanionSkillPatches`).
+
+#### Ele sobrevive ao dismiss/invocar
+
+Comida ativa (com o tempo que ainda faltava queimar), resistência e perícias entram no **snapshot**
+(Fase 2.7): **H** e depois **F1** devolve o companheiro **alimentado, com a stamina e as habilidades
+que ele tinha** — e isso vale até entre sessões, se `Companheiro/PersistirEntreSessoes` estiver
+ligado.
+
 ### Configuração (seções do `.cfg`)
 
 - **Geral** — `LogDetalhado`
@@ -332,6 +427,9 @@ pega:
   `PausarEmCombate`, `CatarDrops`, `Camadas`, `FornecerFerramentas`, `FerramentasFornecidas`
 - **Loot** — `CatarDropsDeCriatura`, `RaioCatar`, `DistanciaMaxima`, `LimiteFila`, `TempoEspera`,
   `TempoMaximo`, `PesoMaximo`
+- **Comida** — `ComerAutomaticamente`, `LimiarHP`, `LimiarStamina`, `IntervaloVerificacao`
+- **Resistencia** — `StaminaLigada`, `StaminaBase`, `GastoCorrida`, `GastoNado`, `TaxaRegen`, `AtrasoRegen`
+- **Skills** — `EvoluirSkills`, `AvisarSubidaDeNivel`, `PerderSkillsAoMorrer`, `FatorPerdaAoMorrer`
 - **Interface** — `MostrarDicasNoHover`
 
 ---
@@ -351,7 +449,7 @@ ModIA/
 │  └─ re/                     # reverse engineering (Fase 1)
 ├─ src/ModAIValheim/          # código do mod (net472)
 │  ├─ Plugin.cs
-│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Appearance, Combat, Harvest, Loot, Hover, Menu...
+│  └─ Companion/              # CompanionAI, Prefab, Manager, Inventory, Food, Stamina, Skills, Appearance, Combat, Harvest, Loot, Hover, Menu...
 └─ .opencode/                 # agentes + skills (equipe de desenvolvimento)
 ```
 
@@ -476,6 +574,49 @@ Requisitos: .NET SDK 8+, Valheim 1.0 com BepInEx 5.4.23+ e Jotunn 2.30.2, Visual
    `Loot/DistanciaMaxima = 8`, sair andando depois do abate faz o log mostrar
    `fim do abate de '...' (o jogador seguiu em frente)`. Com `Loot/PesoMaximo = 5`, ele para de catar
    ao passar de 5 kg (`carga acima de 5 kg`).
+
+### Teste rápido de comida, resistência e habilidades (Fase 2.13)
+
+1. **Preparo**: **F1** invoca o companheiro. No console do jogo (**F5**), dê comida e ferramentas a
+   ele:
+   ```
+   modia_equip AxeStone
+   ```
+   Depois jogue comida no chão e mande-o catar (ou use um baú/`modia_gather` de `Raspberry`): ele só
+   come o que estiver **no inventário dele**.
+   > Dica: `modia_gather raspberry 10` enche o inventário dele de comida rapidinho.
+2. **Ele come sozinho**: rode `modia_stats` antes e depois de alguns segundos.
+   - O log deve mostrar `Comida: o companheiro comeu '...' (slot 0) — +… vida… (comidas ativas: 1/3)`
+     e o `modia_stats` deve mostrar `Comida (1/3): …` com o **bônus de vida** (e a **vida máxima**
+     subindo no menu do jogo: **Y** perto dele).
+   - Coma você perto dele: ele mantém as 3 comidas ativas, como um jogador.
+   - Espera o efeito acabar (ou use `Comida/IntervaloVerificacao = 1` e uma comida curta, tipo
+     `Raspberry`): o log mostra `acabou o efeito de '...'` e, na próxima verificação, ele come de
+     novo.
+3. **Ele cansa**: corra (ou use `Combate/Modo = Aggressive` e provoque um inimigo) e olhe
+   `modia_stats` → `Resistencia: x / y (z%)`.
+   - Correndo longe, o valor cai; ao zerar aparece
+     `Resistencia: o companheiro ficou SEM stamina…` e ele **passa a andar** (para de correr) até
+     recuperar. Bloquear/atacar também gastam — o número no menu cai na hora.
+   - `modia_gather wood 5` também gasta: com a stamina zerada aparece
+     `Coleta: sem resistência para golpear; o companheiro está recuperando e volta a bater` — e ele
+     **volta a bater** depois (o nó **não** é vetado).
+   - `Resistencia/StaminaLigada = false` → a stamina fica sempre cheia e nada é bloqueado.
+4. **As habilidades sobem**: com **F4** (ou `modia_gather wood 10`), deixe-o derrubar uma árvore.
+   - O log deve mostrar `Skill: 'Companheiro' subiu WoodCutting para N` e o HUD mostra
+     `Companheiro — subiu de nível ... WoodCutting: N`.
+   - `modia_stats` lista as perícias (`Pericias: WoodCutting 12, Axes 8…`). Minerando sobe
+     **Pickaxes**; lutando sobe a perícia da arma e **Blocking**; correndo sobe **Run**.
+   - `Skills/EvoluirSkills = false` → nada sobe (e nenhum aviso).
+   - Confirme que o aviso `"… is tamed but missing tameable or monster AI script!"` **não** aparece
+     no `LogOutput.log` enquanto ele bate nas árvores.
+5. **Persistência**: rode `modia_stats`, depois **H** (dispensar) e **F1** (invocar). O companheiro
+   volta com as **mesmas comidas ativas** (com o tempo que faltava), a **stamina** e as
+   **perícias** — `modia_stats` confirma. `modia_state` mostra o snapshot com
+   `Comida/stamina/perícias (Fase 2.13): …`.
+6. **Nada mais mudou**: spawn/dismiss, follow, combate, coleta (madeira/pedra/minério), loot,
+   movimento, aparência, hover, menu e persistência seguem iguais — com a diferença de que agora ele
+   come, cansa e evolui.
 
 ---
 

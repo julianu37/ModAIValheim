@@ -448,6 +448,25 @@ namespace ModAIValheim.Companion
         }
 
         /// <summary>
+        /// Avisa que o companheiro está <b>esperando</b> (e não travado): renova o relógio de
+        /// progresso do nó para o <see cref="ShouldGiveUpNode"/> não o vetar. Usado pela Fase 2.13
+        /// quando falta resistência para golpear — parar para recuperar stamina é trabalho, não
+        /// travamento (sem isso o companheiro vetaria a árvore por "sem progresso em 7 s").
+        /// </summary>
+        internal static void NotifyWaiting(string reason)
+        {
+            if (_node == null)
+            {
+                return;
+            }
+
+            _nodeLastProgressAt = Time.time;
+            LogNodeEvent(
+                MakeNodeLogKey("wait", _node, reason),
+                $"[ModIA] Coleta: {reason}; o companheiro está recuperando e volta a bater.");
+        }
+
+        /// <summary>
         /// True quando vale desistir do nó atual (não chega, travou, ou a ferramenta não faz dano).
         /// <paramref name="why"/> descreve o motivo para o log.
         /// </summary>

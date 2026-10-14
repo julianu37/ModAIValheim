@@ -368,6 +368,22 @@ namespace ModAIValheim.Companion
             CompanionAI dying = GetCompanion();
             if (dying != null)
             {
+                // Fase 2.13: a perda de perícia por morte entra ANTES do snapshot — o companheiro
+                // guardado volta com o que sobrou, como um jogador que morreu.
+                CompanionSkills skills = dying.GetComponent<CompanionSkills>();
+                if (skills != null)
+                {
+                    skills.ApplyDeathPenalty();
+                }
+
+                // Os efeitos de comida morrem com ele (a vida máxima volta ao valor base antes de
+                // o snapshot registrar a vida).
+                CompanionFood food = dying.GetComponent<CompanionFood>();
+                if (food != null)
+                {
+                    food.Clear("companheiro morreu");
+                }
+
                 CompanionStateStore.Capture(dying, "morte");
             }
 

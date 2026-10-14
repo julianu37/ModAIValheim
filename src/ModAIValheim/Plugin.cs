@@ -36,6 +36,11 @@ namespace ModAIValheim
     /// Fase 2.12: o companheiro cata os drops das criaturas que ele mesmo abateu (couro, penas,
     /// ossos...) — patch observador em Character.OnDeath enfileira o ponto do abate e a camada de
     /// loot vai ao corpo, espera os itens saírem do ragdoll e pega só o que aquele abate gerou.
+    /// Fase 2.13: o companheiro vira MEMBRO DA EQUIPE — come sozinho a comida do próprio inventário
+    /// (vida máxima, regeneração e efeito de status, com os tempos de queima do jogo), tem
+    /// resistência própria que importa (correr/nadar/atacar/bloquear gastam; sem stamina ele anda em
+    /// vez de correr) e as habilidades evoluem com o uso (o patch de Character.RaiseSkill passou a
+    /// entregar o ganho para o companheiro em vez de só silenciar o aviso do jogo).
     /// </summary>
     [BepInPlugin(PluginGuid, PluginName, PluginVersion)]
     [BepInDependency(Jotunn.Main.ModGuid)]
@@ -43,7 +48,7 @@ namespace ModAIValheim
     {
         public const string PluginGuid = "modia.companion";
         public const string PluginName = "ModIA Companion";
-        public const string PluginVersion = "0.4.0";
+        public const string PluginVersion = "0.4.1";
 
         internal static Plugin Instance { get; private set; }
         internal static ManualLogSource Log { get; private set; }
@@ -106,6 +111,22 @@ namespace ModAIValheim
         private ConfigEntry<float> _lootWaitSeconds;
         private ConfigEntry<float> _lootMaxSeconds;
         private ConfigEntry<float> _lootMaxWeight;
+
+        // Comida, resistencia (stamina) e habilidades do companheiro (Fase 2.13).
+        private ConfigEntry<bool> _autoEat;
+        private ConfigEntry<float> _eatHealthThreshold;
+        private ConfigEntry<float> _eatStaminaThreshold;
+        private ConfigEntry<float> _eatCheckInterval;
+        private ConfigEntry<bool> _staminaEnabled;
+        private ConfigEntry<float> _staminaBase;
+        private ConfigEntry<float> _staminaRunDrain;
+        private ConfigEntry<float> _staminaSwimDrain;
+        private ConfigEntry<float> _staminaRegenRate;
+        private ConfigEntry<float> _staminaRegenDelay;
+        private ConfigEntry<bool> _skillsEnabled;
+        private ConfigEntry<bool> _skillsAnnounce;
+        private ConfigEntry<bool> _skillsLoseOnDeath;
+        private ConfigEntry<float> _skillsDeathLossFactor;
 
         // Interface (Fase 2.6a).
         private ConfigEntry<bool> _hoverHints;
@@ -445,6 +466,120 @@ namespace ModAIValheim
                 "padrao - o jogo nao tem limite de peso para personagens). Com um valor > 0 ele " +
                 "para de catar quando a carga passa disso e volta a seguir voce.");
 
+            // Comida (Fase 2.13): o companheiro come sozinho a comida do proprio inventario.
+            _autoEat = Config.Bind(
+                "Comida",
+                "ComerAutomaticamente",
+                true,
+                "Se true (padrao), o companheiro COME SOZINHO usando a comida do proprio " +
+                "inventario: consome o item, ganha os bonus de vida/regen do jogo (vida maxima, " +
+                "stamina maxima e regeneracao de vida) e respeita o tempo de queima de cada comida. " +
+                "Ele so come quando faz sentido: com um slot livre (o jogo permite 3 comidas ao " +
+                "mesmo tempo) ou, com os 3 cheios, apenas se a vida/stamina estiver abaixo do limiar " +
+                "e a comida ja tiver passado de metade da queima. Desligado, ele nunca come (e volta " +
+                "a ser um NPC sem fome).");
+
+            _eatHealthThreshold = Config.Bind(
+                "Comida",
+                "LimiarHP",
+                50f,
+                "Vida (%) abaixo da qual o companheiro procura comer - mesmo com os 3 slots cheios, " +
+                "ele recarrega a comida mais esgotada. Na hora de escolher, ele prefere a comida com " +
+                "mais VIDA (0 a 100).");
+
+            _eatStaminaThreshold = Config.Bind(
+                "Comida",
+                "LimiarStamina",
+                30f,
+                "Stamina (%) abaixo da qual o companheiro procura comer - na escolha, ele prefere a " +
+                "comida com mais STAMINA (0 a 100).");
+
+            _eatCheckInterval = Config.Bind(
+                "Comida",
+                "IntervaloVerificacao",
+                5f,
+                "Intervalo em segundos entre as verificacoes de 'esta na hora de comer?' (1 a 60). " +
+                "A varredura do inventario so roda nesse intervalo, nunca por frame.");
+
+            // Resistencia / stamina (Fase 2.13).
+            _staminaEnabled = Config.Bind(
+                "Resistencia",
+                "StaminaLigada",
+                true,
+                "Se true (padrao), o companheiro tem stamina propria que IMPORTA: correr, nadar, " +
+                "atacar, bloquear e pular gastam, e sem stamina ele PARA DE CORRER e nao consegue " +
+                "atacar ate recuperar. Desligada, a stamina fica sempre cheia e nada e bloqueado " +
+                "(comportamento antigo, sem cansaco).");
+
+            _staminaBase = Config.Bind(
+                "Resistencia",
+                "StaminaBase",
+                100f,
+                "Stamina do companheiro SEM comida. O jogador tem 75 (mais a comida); 100 de base da " +
+                "margem para o companheiro acompanhar voce sem ficar para tras a cada esquina. A " +
+                "comida ativa soma o bonus dela ao teto, como no jogador (1 a 500).");
+
+            _staminaRunDrain = Config.Bind(
+                "Resistencia",
+                "GastoCorrida",
+                10f,
+                "Stamina gasta por segundo CORRENDO (o jogador gasta 10/s, reduzido pela pericia de " +
+                "corrida; o companheiro segue a mesma regra). O companheiro so corre a mais de 10 m " +
+                "do alvo (0 a 30).");
+
+            _staminaSwimDrain = Config.Bind(
+                "Resistencia",
+                "GastoNado",
+                10f,
+                "Stamina gasta por segundo NADANDO (0 a 30).");
+
+            _staminaRegenRate = Config.Bind(
+                "Resistencia",
+                "TaxaRegen",
+                6f,
+                "Stamina recuperada por segundo depois do atraso, ja com o bonus proporcional ao " +
+                "que falta (como no jogador: quanto mais vazio, mais rapido enche) e o multiplicador " +
+                "dos efeitos de status (Molhado/Congelado atrapalham). 1 a 30.");
+
+            _staminaRegenDelay = Config.Bind(
+                "Resistencia",
+                "AtrasoRegen",
+                1f,
+                "Segundos de espera, depois de gastar stamina, antes de ela comecar a voltar " +
+                "(0.1 a 5.0).");
+
+            // Habilidades / skills (Fase 2.13).
+            _skillsEnabled = Config.Bind(
+                "Skills",
+                "EvoluirSkills",
+                true,
+                "Se true (padrao), as pericias do companheiro EVOLUEM com o uso, como no jogo: " +
+                "cortar madeira sobe WoodCutting, picaretar sobe Pickaxes, a arma equipada sobe a " +
+                "pericia dela, bloquear sobe Blocking, correr sobe Run. O nivel vale de verdade " +
+                "(custo de stamina do ataque, poder de bloqueio e as contas de ferramenta) e as " +
+                "pericias entram no snapshot (dismiss/invocar). Desligado, tudo fica em nivel 0.");
+
+            _skillsAnnounce = Config.Bind(
+                "Skills",
+                "AvisarSubidaDeNivel",
+                true,
+                "Mostra no HUD (canto superior esquerdo) quando o companheiro sobe de nivel numa " +
+                "pericia, com o nome e o icone da pericia.");
+
+            _skillsLoseOnDeath = Config.Bind(
+                "Skills",
+                "PerderSkillsAoMorrer",
+                true,
+                "Se true (padrao, como no jogo), o companheiro perde uma fracao de cada pericia ao " +
+                "morrer. A perda entra ANTES do snapshot, entao ele volta com o que sobrou.");
+
+            _skillsDeathLossFactor = Config.Bind(
+                "Skills",
+                "FatorPerdaAoMorrer",
+                0.25f,
+                "Fracao perdida de cada pericia ao morrer (0.25 = 25%, como o m_DeathLowerFactor do " +
+                "jogo; 0 = nao perde nada). 0 a 1.");
+
             // Interface (Fase 2.6a).
             _hoverHints = Config.Bind(
                 "Interface",
@@ -541,6 +676,27 @@ namespace ModAIValheim
                 _lootWaitSeconds,
                 _lootMaxSeconds,
                 _lootMaxWeight);
+
+            // Comida, resistencia (stamina) e habilidades do companheiro (Fase 2.13).
+            CompanionFood.Configure(
+                _autoEat,
+                _eatHealthThreshold,
+                _eatStaminaThreshold,
+                _eatCheckInterval);
+
+            CompanionStamina.Configure(
+                _staminaEnabled,
+                _staminaBase,
+                _staminaRunDrain,
+                _staminaSwimDrain,
+                _staminaRegenRate,
+                _staminaRegenDelay);
+
+            CompanionSkills.Configure(
+                _skillsEnabled,
+                _skillsAnnounce,
+                _skillsLoseOnDeath,
+                _skillsDeathLossFactor);
 
             CompanionCommands.Register();
 

@@ -57,3 +57,14 @@ SOFTWARE.
 >   ModIA é própria (`CompanionLoot` + `CompanionLootPatches` + `CompanionAI.UpdateLoot`, adaptados ao
 >   modelo de estados, ao dono do movimento por frame e aos buffers reaproveitados), sem cópia de
 >   arquivo.
+> - **Fase 2.13 (v0.4.1)** — **comida, resistência e habilidades** seguem a lógica de
+>   `src/Companions/Companion/CompanionFood.cs` (slots de comida com tempo de queima, curva de bônus
+>   `pow(restante/total, 0.3)`, regeneração a cada 10 s, efeito de status da comida e a animação de
+>   comer), `src/Companions/Companion/CompanionStamina.cs` + `src/Companions/Patches/StaminaPatches.cs`
+>   (stamina própria do NPC com patches em `Character.UseStamina`/`HaveStamina` e o `CheckRun` que
+>   impede correr sem stamina) e `src/Companions/Companion/CompanionSkills.cs` +
+>   `src/Companions/Patches/SkillPatches.cs` (perícias próprias do NPC com `SkillDef` copiadas do
+>   prefab do jogador e patches em `RaiseSkill`/`GetSkillFactor`/`GetRandomSkillFactor`). A
+>   implementação no ModIA é própria (`CompanionFood`/`CompanionStamina`/`CompanionSkills` +
+>   `CompanionStaminaPatches`/`CompanionSkillPatches`, adaptados ao modelo de estados do `CompanionAI`,
+>   ao snapshot em JSON do `CompanionStateStore` e às seções de config em PT-BR), sem cópia de arquivo.

@@ -150,6 +150,15 @@ namespace ModAIValheim.Companion
 
             clone.AddComponent<CompanionAI>();
 
+            // Fase 2.13: comida, resistência (stamina) e habilidades. São componentes do próprio
+            // companheiro (estado por instância, destruído junto com o NPC) — as definições de
+            // perícia, essas sim, vêm do prefab do jogador e são copiadas aqui, enquanto o
+            // componente 'Skills' original ainda existe.
+            clone.AddComponent<CompanionFood>();
+            clone.AddComponent<CompanionStamina>();
+            clone.AddComponent<CompanionSkills>();
+            CompanionSkills.CacheSkillDefs(source);
+
             // Nesta fase o companheiro não é persistente: sem ZDO salvo no mundo
             // (não mexe no save) e sem duplicatas órfãs depois de recarregar a área.
             ZNetView netView = clone.GetComponent<ZNetView>();

@@ -143,6 +143,13 @@ namespace ModAIValheim.Companion
         /// <summary>Intervalo (s) entre interações (colher/pegar item).</summary>
         private const float HarvestInteractInterval = 0.3f;
 
+        // --- Fase 2.13: comida, resistência (stamina) e habilidades ---
+        /// <summary>Gestor de comida do companheiro (bônus de vida/stamina + regeneração).</summary>
+        private CompanionFood _food;
+
+        /// <summary>Resistência própria do companheiro (correr/atacar/bloquear gastam).</summary>
+        private CompanionStamina _stamina;
+
         // --- Fase 2.10: dono do movimento por frame (#2/#5) e bloqueio/parry (#6) ---
         /// <summary>Quem dirige o movimento neste frame (evita <c>MoveTo</c> concorrendo).</summary>
         private MovementOwner _movementOwner;
@@ -251,6 +258,11 @@ namespace ModAIValheim.Companion
 
             ApplyCombatTuning();
 
+            // Fase 2.13: comida, resistência (stamina) e habilidades. Roda antes do motor nativo
+            // para que a vida máxima (bônus de comida) e a stamina deste tick já valham para o
+            // combate/coleta do mesmo frame. Só no dono do ZDO (já garantido acima).
+            UpdateVitals(dt);
+
             // Fase 2.10 (#6): baixa o escudo ANTES do motor nativo para que a lógica de ataque do
             // MonsterAI (que roda em base.UpdateAI) não fique presa no bloqueio; a camada
             // UpdateBlocking volta a erguê-lo logo depois, valendo pelo resto do frame (é quando o
@@ -304,6 +316,41 @@ namespace ModAIValheim.Companion
         public void EnsureConfigured()
         {
             ConfigureAsCompanion();
+        }
+
+        /// <summary>
+        /// Camada de <b>comida</b>, <b>resistência</b> e <b>habilidades</b> do companheiro
+        /// (Fase 2.13). Chamada a cada <see cref="UpdateAI"/> (≈20 Hz), sempre <b>depois</b> das
+        /// guardas de dono do ZDO e <b>antes</b> do motor nativo.
+        ///
+        /// <para>
+        /// Os três componentes são resolvidos uma única vez (guardados em campo) — nada de
+        /// <c>GetComponent</c> por frame. Quem faz o trabalho pesado com intervalo são eles:
+        /// a comida varre o inventário só a cada <c>Comida/IntervaloVerificacao</c> (5 s) e a
+        /// stamina/queima só usam contas por tick.
+        /// </para>
+        /// </summary>
+        private void UpdateVitals(float dt)
+        {
+            if (_food == null)
+            {
+                _food = GetComponent<CompanionFood>();
+            }
+
+            if (_stamina == null)
+            {
+                _stamina = GetComponent<CompanionStamina>();
+            }
+
+            if (_food != null)
+            {
+                _food.Tick(dt);
+            }
+
+            if (_stamina != null)
+            {
+                _stamina.Tick(dt);
+            }
         }
 
         /// <summary>
@@ -1814,12 +1861,48 @@ namespace ModAIValheim.Companion
 
             _harvestStrikeTimer = CompanionHarvest.StrikeInterval;
 
+            // Fase 2.13: o golpe custa resistência. O `Attack.DoAttack` do jogo recusa o ataque
+            // sem stamina (`HaveStamina(custo + 0.1)`) e aí nenhum dano sai — o que faria a coleta
+            // vetar o nó por "sem progresso em 7 s". Aqui isso é tratado como ESPERA (o relógio de
+            // progresso é renovado), não como travamento.
+            if (!HasStaminaToStrike())
+            {
+                CompanionHarvest.NotifyWaiting("sem resistência para golpear");
+                return;
+            }
+
             // StartAttack(null, false): o alvo é decidido pela hitbox do ataque (o mesmo caminho do
             // jogador batendo em recurso) — o parâmetro Character nem é usado pelo Humanoid.
             if (m_character.StartAttack(null, false))
             {
                 CompanionHarvest.RegisterStrike(node);
             }
+        }
+
+        /// <summary>
+        /// O companheiro tem resistência para o golpe que a ferramenta equipada vai desferir?
+        /// Reproduz a conta do <c>Attack.GetAttackStamina</c> (custo da arma reduzido pela perícia
+        /// dela) e usa a mesma margem de 0,1 do <c>Attack.DoAttack</c>. Sem ferramenta de ataque
+        /// (ou sem resistência ligada) devolve <c>true</c> — nunca bloqueia por engano.
+        /// </summary>
+        private bool HasStaminaToStrike()
+        {
+            if (_stamina == null || !CompanionStamina.Enabled)
+            {
+                return true;
+            }
+
+            Humanoid humanoid = m_character as Humanoid;
+            ItemDrop.ItemData weapon = humanoid != null ? humanoid.GetCurrentWeapon() : null;
+            Attack attack = weapon != null && weapon.m_shared != null ? weapon.m_shared.m_attack : null;
+            if (attack == null || attack.m_attackStamina <= 0f)
+            {
+                return true;
+            }
+
+            float cost = attack.m_attackStamina;
+            cost -= cost * 0.33f * m_character.GetSkillFactor(weapon.m_shared.m_skillType);
+            return _stamina.Stamina > cost + 0.1f;
         }
 
         /// <summary>Reequipa a ferramenta de coleta se algo (combate, comando) trocou a arma atual.</summary>

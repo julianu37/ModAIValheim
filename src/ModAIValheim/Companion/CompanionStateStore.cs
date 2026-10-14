@@ -164,6 +164,25 @@ namespace ModAIValheim.Companion
             // Modo de combate.
             state.Mode = CompanionCombat.Mode.ToString();
 
+            // Fase 2.13: comida, stamina e perícias (o que faz dele um membro da equipe).
+            CompanionFood food = companion.GetComponent<CompanionFood>();
+            if (food != null)
+            {
+                food.CaptureState(state.Foods);
+            }
+
+            CompanionStamina stamina = companion.GetComponent<CompanionStamina>();
+            if (stamina != null)
+            {
+                state.Stamina = stamina.Stamina;
+            }
+
+            CompanionSkills skills = companion.GetComponent<CompanionSkills>();
+            if (skills != null)
+            {
+                skills.CaptureState(state.Skills);
+            }
+
             // Vida (informativa: a restauração devolve o companheiro cheio).
             Character character = companion.GetComponent<Character>();
             if (character != null)
@@ -182,7 +201,9 @@ namespace ModAIValheim.Companion
                 $"[ModIA] Snapshot do companheiro ({source}): {state.Items.Count} item(ns), " +
                 $"{state.EquippedCount} equipado(s), modo {state.Mode}, " +
                 $"vida {state.Health:0}/{state.MaxHealth:0}, aparência " +
-                (state.AppearanceEnabled ? "ligada" : "desligada") + ".");
+                (state.AppearanceEnabled ? "ligada" : "desligada") + ", " +
+                $"{state.FoodCount} comida(s), stamina {state.Stamina:0}, " +
+                $"{state.SkillCount} perícia(s).");
 
             Persist(state);
         }
@@ -224,6 +245,9 @@ namespace ModAIValheim.Companion
             CompanionAppearance.ApplySnapshot(companion, state);
             RestoreMode(state.Mode);
 
+            // Fase 2.13: comida, stamina e perícias voltam junto com os itens.
+            RestoreVitals(companion, state);
+
             Plugin.Log.LogInfo(
                 $"[ModIA] Companheiro restaurado do snapshot (origem '{state.Source}', " +
                 $"{state.Items.Count} item(ns), {state.EquippedCount} equipado(s), modo {state.Mode}); " +
@@ -231,6 +255,34 @@ namespace ModAIValheim.Companion
                     ? "itens/aparência/modo reaplicados."
                     : "itens NÃO restaurados (veja os avisos acima)."));
             return true;
+        }
+
+        /// <summary>
+        /// Devolve o estado de <b>comida</b>, <b>stamina</b> e <b>perícias</b> do snapshot
+        /// (Fase 2.13). A comida é restaurada com o tempo de queima que faltava e a stamina com o
+        /// valor guardado (aparado no teto que a comida restaurada definir) — o companheiro volta
+        /// "alimentado", não com os efeitos reiniciados de graça.
+        /// </summary>
+        private static void RestoreVitals(CompanionAI companion, CompanionState state)
+        {
+            CompanionFood food = companion.GetComponent<CompanionFood>();
+            if (food != null)
+            {
+                food.RestoreState(state.Foods);
+            }
+
+            CompanionStamina stamina = companion.GetComponent<CompanionStamina>();
+            if (stamina != null)
+            {
+                // < 0 = arquivo antigo (formato sem stamina): volta cheio, como antes.
+                stamina.SetStamina(state.Stamina >= 0f ? state.Stamina : stamina.MaxStamina);
+            }
+
+            CompanionSkills skills = companion.GetComponent<CompanionSkills>();
+            if (skills != null)
+            {
+                skills.RestoreState(state.Skills);
+            }
         }
 
         /// <summary>
@@ -284,6 +336,45 @@ namespace ModAIValheim.Companion
                     (state.AppearanceEnabled ? "ligada" : "desligada") + ".");
                 lines.Add(
                     $"[ModIA]   Capturado em '{state.Source}' ({state.SavedAtUtc}), formato v{state.Version}.");
+
+                if (state.FoodCount > 0 || state.SkillCount > 0 || state.Stamina >= 0f)
+                {
+                    lines.Add(
+                        $"[ModIA]   Comida/stamina/perícias (Fase 2.13): {state.FoodCount} comida(s) " +
+                        $"ativa(s), stamina {state.Stamina:0}, {state.SkillCount} perícia(s).");
+                }
+
+                if (state.Foods != null)
+                {
+                    for (int i = 0; i < state.Foods.Count; i++)
+                    {
+                        CompanionFoodState food = state.Foods[i];
+                        if (food == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add(
+                            $"[ModIA]   comida {i}: {food.Prefab} ({food.Remaining:0}/{food.Total:0}s, " +
+                            $"+{food.Health:0} vida, +{food.Stamina:0} stamina)");
+                    }
+                }
+
+                if (state.Skills != null)
+                {
+                    for (int i = 0; i < state.Skills.Count; i++)
+                    {
+                        CompanionSkillState skill = state.Skills[i];
+                        if (skill == null)
+                        {
+                            continue;
+                        }
+
+                        lines.Add(
+                            $"[ModIA]   perícia: {(Skills.SkillType)skill.Skill} " +
+                            $"nível {(int)skill.Level}");
+                    }
+                }
 
                 for (int i = 0; i < state.Items.Count; i++)
                 {
@@ -378,9 +469,21 @@ namespace ModAIValheim.Companion
                     state.Items = new List<CompanionItemState>();
                 }
 
+                // Fase 2.13: campos aditivos — arquivo antigo vem sem eles.
+                if (state.Foods == null)
+                {
+                    state.Foods = new List<CompanionFoodState>();
+                }
+
+                if (state.Skills == null)
+                {
+                    state.Skills = new List<CompanionSkillState>();
+                }
+
                 Plugin.Log.LogInfo(
                     $"[ModIA] Snapshot carregado do disco: {state.Items.Count} item(ns) " +
-                    $"({state.EquippedCount} equipado(s)), modo {state.Mode}, origem '{state.Source}'.");
+                    $"({state.EquippedCount} equipado(s)), modo {state.Mode}, origem '{state.Source}', " +
+                    $"{state.FoodCount} comida(s), {state.SkillCount} perícia(s).");
                 return state;
             }
             catch (Exception e)

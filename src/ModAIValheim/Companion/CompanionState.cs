@@ -15,6 +15,14 @@ namespace ModAIValheim.Companion
     /// </para>
     ///
     /// <para>
+    /// <b>Fase 2.13:</b> o retrato também guarda o que faz dele um <i>membro da equipe</i> — as
+    /// <b>comidas ativas</b> (com o tempo de queima que faltava), a <b>stamina</b> e as
+    /// <b>perícias</b> (<see cref="Foods"/>/<see cref="Stamina"/>/<see cref="Skills"/>). Esses três
+    /// campos são <b>aditivos</b>: um arquivo antigo (formato v1 sem eles) carrega normalmente, só
+    /// sem comida/stamina/skills guardadas — o companheiro volta com os itens, como antes.
+    /// </para>
+    ///
+    /// <para>
     /// Os tipos são <c>public</c> e só usam campos públicos de propósito: é o contrato que o
     /// <see cref="JsonUtility"/> do Unity serializa/deserializa para o arquivo
     /// <c>BepInEx\config\modia.companion.state.json</c> (propriedades calculadas como
@@ -61,6 +69,19 @@ namespace ModAIValheim.Companion
         /// <summary>Modo de combate no momento da captura (<c>Passive</c>/<c>Defensive</c>/<c>Aggressive</c>).</summary>
         public string Mode = string.Empty;
 
+        /// <summary>
+        /// Comidas ativas no corpo (Fase 2.13), com o tempo que ainda faltava queimar. Campos
+        /// <b>aditivos</b>: um arquivo gravado antes da 2.13 não tem esta chave e é carregado com a
+        /// lista vazia (nada de perder o companheiro guardado por causa do formato).
+        /// </summary>
+        public List<CompanionFoodState> Foods = new List<CompanionFoodState>();
+
+        /// <summary>Stamina na captura (Fase 2.13); <c>&lt; 0</c> = sem dado (usa o teto cheio).</summary>
+        public float Stamina = -1f;
+
+        /// <summary>Perícias do companheiro (Fase 2.13), também aditivas.</summary>
+        public List<CompanionSkillState> Skills = new List<CompanionSkillState>();
+
         /// <summary>Vida atual na captura (informativo: não é restaurada).</summary>
         public float Health;
 
@@ -72,6 +93,12 @@ namespace ModAIValheim.Companion
 
         /// <summary>Quando a captura foi feita (ISO-8601, UTC) — só para leitura humana.</summary>
         public string SavedAtUtc = string.Empty;
+
+        /// <summary>Quantas comidas estavam ativas no momento da captura.</summary>
+        public int FoodCount => Foods != null ? Foods.Count : 0;
+
+        /// <summary>Quantas perícias tinham nível/acumulador no momento da captura.</summary>
+        public int SkillCount => Skills != null ? Skills.Count : 0;
 
         /// <summary>Quantos itens do snapshot estavam equipados.</summary>
         public int EquippedCount
@@ -144,5 +171,56 @@ namespace ModAIValheim.Companion
 
         /// <summary>True se o item estava equipado quando o snapshot foi tirado.</summary>
         public bool Equipped;
+    }
+
+    /// <summary>
+    /// Uma comida ativa no corpo do companheiro dentro do snapshot (Fase 2.13). Guarda os bônus já
+    /// resolvidos (<c>m_food</c>/<c>m_foodStamina</c>/<c>m_foodEitr</c>/<c>m_foodRegen</c>) e o tempo
+    /// de queima, porque o companheiro não tem <c>m_foods</c> do jogo: os slots são nossos
+    /// (<see cref="CompanionFood"/>) e precisam ser reescritos do zero ao re-invocar.
+    /// </summary>
+    [Serializable]
+    public sealed class CompanionFoodState
+    {
+        /// <summary>Prefab do item (ex.: <c>CookedMeat</c>) — só para leitura humana/log.</summary>
+        public string Prefab = string.Empty;
+
+        /// <summary>Nome localizado da comida (<c>m_shared.m_name</c>) — é a chave dos slots.</summary>
+        public string Name = string.Empty;
+
+        /// <summary>Bônus de vida da comida.</summary>
+        public float Health;
+
+        /// <summary>Bônus de stamina da comida.</summary>
+        public float Stamina;
+
+        /// <summary>Bônus de eitr da comida (guardado mesmo sem uso hoje).</summary>
+        public float Eitr;
+
+        /// <summary>Vida regenerada por tick de comida.</summary>
+        public float Regen;
+
+        /// <summary>Segundos de queima que ainda faltavam.</summary>
+        public float Remaining;
+
+        /// <summary>Tempo total de queima da comida.</summary>
+        public float Total;
+    }
+
+    /// <summary>
+    /// Uma perícia do companheiro dentro do snapshot (Fase 2.13). O <c>Skill</c> é o valor numérico
+    /// de <c>Skills.SkillType</c> (guardado como <c>int</c> para o JSON não depender do enum).
+    /// </summary>
+    [Serializable]
+    public sealed class CompanionSkillState
+    {
+        /// <summary><c>Skills.SkillType</c> como número (ex.: 13 = <c>WoodCutting</c>).</summary>
+        public int Skill;
+
+        /// <summary>Nível da perícia (0 a 100).</summary>
+        public float Level;
+
+        /// <summary>Progresso acumulado para o próximo nível.</summary>
+        public float Accumulator;
     }
 }

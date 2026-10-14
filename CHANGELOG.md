@@ -3,6 +3,99 @@
 Todas as mudanças relevantes do **ModIA**. Formato baseado em [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/)
 e versionamento semântico.
 
+## [0.4.1] — 2026-10-14
+
+### Adicionado
+- **O companheiro virou MEMBRO DA EQUIPE** (Fase 2.13): agora ele **come**, **cansa** e **evolui
+  habilidades** — o que faltava para ele deixar de ser decorativo.
+  - **Comida (`Companion/CompanionFood.cs`).** Ele come sozinho a comida do **próprio inventário**:
+    consome o item, ganha os bônus do jogo (vida máxima, stamina máxima e regeneração de vida) e
+    respeita os **tempos de queima**. No 1.0.17 os slots de comida (`m_foods`, `m_foodUpdateTimer`,
+    `GetTotalFoodValue`, `EatFood`, `UpdateFood`) são **privados do `Player`**, e
+    `Humanoid.ConsumeItem` é `virtual` com corpo **vazio** na base (quem come é
+    `Player.ConsumeItem` → `EatFood`, que ainda escreve no **perfil do jogador** e nos campos
+    `m_baseHP`/`m_maxStamina` que só o jogador tem) — ou seja, **não havia caminho pronto para um
+    NPC**. Reproduzimos as contas do `Player.UpdateFood`: queima de 1 s a cada
+    `1 / Game.m_foodRate`, bônus decrescente `base × pow(clamp01(restante/total), 0.3)`,
+    `Character.SetMaxHealth(base + bônus)`, regeneração de `Σ m_foodRegen` a cada 10 s passando por
+    `SEMan.ModifyHealthRegen`, efeito de status da comida
+    (`SEMan.AddStatusEffect(m_consumeStatusEffect)`) e o feedback visual do próprio jogo
+    (`m_zanim.SetTrigger("eat")`, `Humanoid.m_consumeItemEffects`, `SetUseHandVisual`).
+  - **Sem desperdício:** ele come com um slot livre (o jogo permite 3 comidas simultâneas) ou, com
+    os 3 cheios, **só** se a vida (`Comida/LimiarHP`, 50%) ou a stamina (`Comida/LimiarStamina`, 30%)
+    estiverem abaixo do limiar **e** alguma comida já tiver passado de metade da queima (a regra
+    `CanEatAgain` do jogo). Na escolha, prefere a comida que cobre a necessidade (mais vida quando a
+    vida está baixa, mais stamina quando a stamina está baixa) e, sem necessidade nenhuma, a **mais
+    barata** — o banquete bom fica guardado. Comida cujo efeito de status já está ativo é recusada.
+  - **Resistência (`Companion/CompanionStamina.cs` + `CompanionStaminaPatches.cs`).** No 1.0.17
+    `Character.UseStamina`/`HaveStamina`/`AddStamina` são `virtual` e **vazios** na base (só o
+    `Player` os implementa), então o companheiro não tinha stamina nenhuma: correr, atacar, bloquear
+    e pular eram de graça. Patches Harmony redirecionam as três chamadas para a stamina dele — o que
+    faz o **próprio jogo** cobrar e recusar as ações caras: `Attack.Start` (custo reduzido pela
+    perícia da arma, via `GetAttackStamina` → `GetSkillFactor`), `Humanoid.BlockAttack`,
+    `Character.OnJump` e `SE_Stats` (hidromel/poções). O gasto por correr/nadar e a regeneração
+    (mesma forma do jogador: taxa + bônus proporcional ao que falta, com `SEMan.ModifyStaminaRegen`)
+    rodam no tick do `CompanionAI`, e um postfix em `Character.CheckRun` faz ele **parar de correr**
+    com a stamina zerada em vez de continuar em disparada.
+  - **Sem travar a coleta:** golpear árvore/pedra também custa stamina, e sem stamina o
+    `Attack.Start` recusa o golpe — o que faria a coleta **vetar o nó** por "sem progresso em 7 s".
+    O `StrikeNode` agora checa a resistência **antes** de bater e, quando falta, marca o nó como
+    *esperando* (`CompanionHarvest.NotifyWaiting`), renovando o relógio de progresso: ele recupera e
+    volta a bater.
+  - **Habilidades (`Companion/CompanionSkills.cs`).** O companheiro não tem o componente `Skills`
+    (removido do prefab de propósito, porque ele guarda uma referência ao `Player`), então
+    `GetSkills()`/`GetSkillFactor()` devolviam `null`/`0` e ele bateria sempre com "skill 0".
+    Guardamos nível + acumulador de cada perícia e reproduzimos a matemática do `Skills.Skill.Raise`
+    (`m_increseStep × fator × Game.m_skillGainRate`; próximo nível
+    `pow(floor(nível+1), 1.5) × 0.5 + 0.5`), com as definições (`SkillDef`: ícone e passo de ganho)
+    copiadas do prefab do jogador. O nível vale **de verdade**: custo de stamina do ataque
+    (a perícia da arma corta até 33% do gasto), poder de bloqueio e as contas de ferramenta. O
+    multiplicador de **dano** (`GetRandomSkillFactor`) ficou **de fora de propósito** — a curva do
+    jogador faria um companheiro de perícia 0 bater com ~40% do dano, ou seja, mais fraco do que
+    antes desta fase; o dano fica como estava. Ele ganha perícia cortando
+    (`WoodCutting`), minerando (`Pickaxes`), com a arma equipada, bloqueando (`Blocking`) e correndo
+    (`Run`), com aviso opcional no HUD e perda por morte (25%, como o jogo).
+  - **`CompanionSkillPatches` revisado.** O patch da 2.11 silenciava o aviso
+    `"… is tamed but missing tameable or monster AI script!"` devolvendo `false` em
+    `Character.RaiseSkill` — o que também **matava qualquer evolução de perícia**. Agora o mesmo
+    `false` (o corpo do jogo **não roda** para o NPC, logo o aviso **não pode voltar**) vem depois de
+    **entregar o ganho** ao `CompanionSkills`, e dois prefixes novos
+    (`GetSkillFactor`/`GetRandomSkillFactor`) fazem o nível chegar onde o jogo consome.
+  - **Snapshot (Fase 2.7) ampliado:** comidas ativas (com o tempo de queima que faltava), stamina e
+    perícias entram no `CompanionState` — dismiss (H) → invocar (F1) devolve o companheiro
+    **alimentado, com a resistência e as habilidades que ele tinha**. Os campos são **aditivos**:
+    arquivo antigo (formato v1 sem eles) carrega normalmente, só sem esses dados.
+  - **`modia_stats`** (novo comando de console): mostra vida (com a base sem comida), comidas ativas
+    com o tempo que falta, resistência e as perícias já treinadas.
+  - **Menu (Y):** a linha de estado ganhou `Comida: n/3 | Resistência: x/y` (o estado da coleta já
+    tem painel próprio logo abaixo).
+- Config em três seções novas (todas em PT-BR): **`[Comida]`** (`ComerAutomaticamente`, `LimiarHP`,
+  `LimiarStamina`, `IntervaloVerificacao`), **`[Resistencia]`** (`StaminaLigada`, `StaminaBase`,
+  `GastoCorrida`, `GastoNado`, `TaxaRegen`, `AtrasoRegen`) e **`[Skills]`** (`EvoluirSkills`,
+  `AvisarSubidaDeNivel`, `PerderSkillsAoMorrer`, `FatorPerdaAoMorrer`).
+- Seção **"Comida, resistência e habilidades"** no `README` com a receita de teste in-game.
+
+### Alterado
+- `CompanionAI.UpdateAI` ganhou a camada `UpdateVitals(dt)` (comida + resistência), que roda
+  **depois** das guardas de dono do ZDO e **antes** do motor nativo; `CompanionAI.StrikeNode` passou
+  a consultar a resistência antes de golpear.
+- `CompanionPrefab` adiciona os três componentes novos ao prefab (`CompanionFood`,
+  `CompanionStamina`, `CompanionSkills`) e copia as definições de perícia do prefab do jogador.
+- `CompanionManager` aplica a **perda de perícia por morte** e encerra os efeitos de comida **antes**
+  do snapshot de morte.
+- `CompanionHarvest` ganhou `NotifyWaiting(reason)` (espera não é travamento: o nó não é vetado).
+- Versão do plugin → **0.4.1**.
+
+> **Referência (MIT):** a lógica de comida/stamina/perícias segue
+> [Offline Companions Reborn](https://github.com/MaddhattrRocks/Offline-Companions-Reborn)
+> (`src/Companions/Companion/CompanionFood.cs`, `CompanionStamina.cs`, `CompanionSkills.cs`,
+> `src/Companions/Patches/StaminaPatches.cs`, `SkillPatches.cs`), com atribuição em
+> [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md). A implementação aqui é própria (adaptada ao
+> modelo de estados do `CompanionAI`, ao snapshot JSON do `CompanionStateStore` e às seções de
+> config em PT-BR), sem cópia de arquivo.
+
+---
+
 ## [0.4.0] — 2026-10-14
 
 ### Adicionado

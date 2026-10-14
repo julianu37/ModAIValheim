@@ -40,6 +40,7 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
 | 2.10 | Movimento/combate: proteção contra queda, portas no caminho, bloqueio/parry e filtro de alvo passivo | ✅ |
 | 2.11 | Coleta: fim do loop de escolher/largar nó (seleção respeita a "coleira" do jogador) + log só na mudança | ✅ |
 | 2.12 | Loot: catar os drops das criaturas abatidas pelo companheiro (patch em `Character.OnDeath` + estado de loot) | ✅ |
+| 2.13 | **Membro da equipe**: comida (come sozinho do inventário), resistência (stamina) e habilidades que evoluem | ✅ |
 | 2.5 | Multiplayer (ZNetView/ZDO, testes com cliente/servidor) | ⏳ |
 | **3** | IA e voz: comandos por voz/chat, STT, TTS, personalidade | ⏳ |
 | **4** | Backend híbrido (LLM local + API), endpoints do "cérebro" | ⏳ |
@@ -115,3 +116,19 @@ Legenda: ✅ concluído · 🔄 em andamento · ⏳ pendente
   máxima, peso, fila de 6 e tetos de tempo. Prioridade preservada (**combate > coleta > loot/follow**,
   com o abate voltando à frente da fila e o relógio pausado) e novo `MovementOwner.Loot` no dono único
   do movimento por frame. Ver `docs/audit-vs-offline-companions.md`.
+- **Fase 2.13 (0.4.1)** — **membro da equipe: comida, resistência e habilidades**. O companheiro
+  **come sozinho** a comida do próprio inventário (slots próprios com a queima e a curva de bônus do
+  jogo, `Character.SetMaxHealth(base + bônus)`, regeneração de `Σ m_foodRegen` a cada 10 s com
+  `SEMan.ModifyHealthRegen`, efeito de status da comida e a animação de comer) — necessário porque os
+  slots de comida são **privados do `Player`** e `Humanoid.ConsumeItem` é um **no-op** na base;
+  **resistência própria** que importa (patches em `Character.UseStamina`/`HaveStamina`/`AddStamina` e
+  postfix em `Character.CheckRun`, com gasto por corrida/nado no tick do `CompanionAI`) — sem ela,
+  correr/atacar/bloquear/pular eram de graça para o NPC, porque a base é `virtual` e vazia; e
+  **habilidades que evoluem** (`CompanionSkills` com a matemática do `Skills.Skill.Raise` e as
+  `SkillDef` copiadas do prefab do jogador), com o `CompanionSkillPatches` **revisado**: o mesmo
+  prefix que silenciava o aviso de `Tameable` agora **entrega o ganho** ao companheiro e o
+  `GetSkillFactor` faz o nível valer no custo de stamina do ataque e no poder de bloqueio (o
+  `GetRandomSkillFactor`, que é o multiplicador de **dano**, ficou de fora de propósito: a curva do
+  jogador enfraqueceria o companheiro até ele treinar muito). Comida, stamina e perícias entram no **snapshot** (campos aditivos) e o console ganhou
+  `modia_stats`. A coleta ganhou `CompanionHarvest.NotifyWaiting`: esperar stamina **não** é
+  travamento (o nó não é vetado).

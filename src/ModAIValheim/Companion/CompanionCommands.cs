@@ -14,6 +14,7 @@ namespace ModAIValheim.Companion
     ///   <item><description><c>modia_equip &lt;prefab&gt; [slot]</c> — equipa arma ou armadura.</description></item>
     ///   <item><description><c>modia_drop &lt;prefab&gt; [qtd]</c> — dropa item do inventário do companheiro.</description></item>
     ///   <item><description><c>modia_mode [passive|defensive|aggressive]</c> — mostra/define o modo de combate.</description></item>
+    ///   <item><description><c>modia_stats</c> — comidas ativas, resistência (stamina) e perícias do companheiro (Fase 2.13).</description></item>
     /// </list>
     ///
     /// O <see cref="CommandManager"/> só injeta os comandos no <c>Console.Awake</c>, então basta
@@ -41,10 +42,11 @@ namespace ModAIValheim.Companion
             manager.AddConsoleCommand(new GatherCommand());
             manager.AddConsoleCommand(new StopCommand());
             manager.AddConsoleCommand(new StateCommand());
+            manager.AddConsoleCommand(new StatsCommand());
 
             Plugin.Log.LogInfo(
                 "[ModIA] Comandos de console registrados: modia_inv, modia_equip, modia_drop, " +
-                "modia_mode, modia_gather, modia_stop, modia_state.");
+                "modia_mode, modia_gather, modia_stop, modia_state, modia_stats.");
         }
 
         /// <summary>Escreve a mesma linha no console do jogo e no log do BepInEx.</summary>
@@ -429,6 +431,74 @@ namespace ModAIValheim.Companion
                 for (int i = 0; i < lines.Count; i++)
                 {
                     Report(context, lines[i]);
+                }
+            }
+
+            public override void Run(string[] args)
+            {
+                Run(args, null);
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // modia_stats
+        // ---------------------------------------------------------------------
+
+        private sealed class StatsCommand : ConsoleCommand
+        {
+            public override string Name => "modia_stats";
+
+            public override string Help =>
+                "Mostra o estado de 'membro da equipe' do companheiro (Fase 2.13): comidas ativas " +
+                "(com o tempo de queima que falta), resistencia (stamina) e as pericias que ele ja " +
+                "tem. Serve para ver em jogo que ele come, cansa e evolui skill.";
+
+            public override void Run(string[] args, Terminal context)
+            {
+                if (!RequireCompanion(context))
+                {
+                    return;
+                }
+
+                CompanionAI companion = Current;
+                Character body = companion.GetComponent<Character>();
+
+                if (body != null)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Vida: {body.GetHealth():0} / {body.GetMaxHealth():0} " +
+                        $"(base sem comida {body.GetMaxHealthBase():0}).");
+                }
+
+                CompanionFood food = companion.GetComponent<CompanionFood>();
+                if (food != null)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Comida ({food.ActiveCount}/{CompanionFood.MaxSlots}): {food.Describe()} " +
+                        $"— bonus +{food.TotalHealthBonus:0} vida / +{food.TotalStaminaBonus:0} stamina.");
+                }
+
+                CompanionStamina stamina = companion.GetComponent<CompanionStamina>();
+                if (stamina != null)
+                {
+                    Report(
+                        context,
+                        $"[ModIA] Resistencia: {stamina.Describe()} " +
+                        $"({stamina.GetStaminaPercentage() * 100f:0}%).");
+                }
+
+                CompanionSkills skills = companion.GetComponent<CompanionSkills>();
+                if (skills != null)
+                {
+                    string top = skills.DescribeTop(6);
+                    Report(
+                        context,
+                        top.Length > 0
+                            ? $"[ModIA] Pericias: {top}."
+                            : "[ModIA] Pericias: nenhuma ainda (ele sobe cortando, minerando, " +
+                              "lutando, bloqueando e correndo).");
                 }
             }
 

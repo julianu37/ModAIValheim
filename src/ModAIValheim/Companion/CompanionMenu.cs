@@ -104,6 +104,10 @@ namespace ModAIValheim.Companion
         private const string TokenNoCompanion = "$modia_menu_no_companion";
         private const string TokenTooFar = "$modia_menu_too_far";
 
+        /// <summary>Comida ativa e resistência (stamina) do companheiro (Fase 2.13).</summary>
+        private const string TokenFood = "$modia_menu_food";
+        private const string TokenStamina = "$modia_menu_stamina";
+
         /// <summary>Token → texto em PT-BR (é também o fallback usado em código).</summary>
         private static readonly Dictionary<string, string> s_tokens = new Dictionary<string, string>
         {
@@ -114,6 +118,8 @@ namespace ModAIValheim.Companion
             { TokenHealth, "Vida" },
             { TokenMode, "Modo" },
             { TokenHarvestState, "Coleta" },
+            { TokenFood, "Comida" },
+            { TokenStamina, "Resistência" },
 
             { TokenAppearance, "Aparência" },
             { TokenAppearanceEnabled, "Aparência personalizada" },
@@ -836,10 +842,24 @@ namespace ModAIValheim.Companion
                 body.GetHealth(),
                 body.GetMaxHealth());
             string mode = string.Format("{0}: {1}", Text(TokenMode), ModeDisplayName(CompanionCombat.Mode));
-            string harvest = string.Format(
-                "{0}: {1}", Text(TokenHarvestState), HarvestStateText());
 
-            _statusText.text = name + "\n" + health + "   |   " + mode + "\n" + harvest;
+            // Fase 2.13: comida ativa e resistência substituem a linha de coleta — o estado da
+            // coleta já tem o painel próprio logo abaixo ("Coleta"), com muito mais detalhe.
+            CompanionFood food = companion.GetComponent<CompanionFood>();
+            CompanionStamina stamina = companion.GetComponent<CompanionStamina>();
+
+            string foodText = string.Format(
+                "{0}: {1}/{2}",
+                Text(TokenFood),
+                food != null ? food.ActiveCount : 0,
+                CompanionFood.MaxSlots);
+            string staminaText = string.Format(
+                "{0}: {1}",
+                Text(TokenStamina),
+                stamina != null ? stamina.Describe() : "-");
+
+            _statusText.text = name + "\n" + health + "   |   " + mode + "\n" +
+                               foodText + "   |   " + staminaText;
         }
 
         private static void RefreshAppearance()
